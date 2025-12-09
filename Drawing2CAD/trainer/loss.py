@@ -17,8 +17,10 @@ class NewCADLoss(nn.Module):
 
     def forward(self, outputs, cad_data):
         # Target
-        tgt_commands = cad_data["command"].cuda()
-        tgt_args = cad_data["args"].cuda()
+        # tgt_commands = cad_data["command"].cuda()
+        # tgt_args = cad_data["args"].cuda()
+        tgt_commands = cad_data["command"]
+        tgt_args = cad_data["args"]
 
         visibility_mask = _get_visibility_mask(tgt_commands, seq_dim=-1)
         padding_mask = _get_padding_mask_cad(tgt_commands, seq_dim=-1, extended=True) * visibility_mask.unsqueeze(-1)
@@ -48,7 +50,9 @@ def gumbel_loss(pred, target, mask, tolerance=3, alpha=2.0):
 
     for shift in range(-tolerance, tolerance + 1):
         shifted_target = torch.clamp(target + shift, 0, N_CLASS - 1)
-        weight = torch.exp(torch.tensor(-alpha * abs(shift), dtype=torch.float32, device='cuda'))
+        # weight = torch.exp(torch.tensor(-alpha * abs(shift), dtype=torch.float32, device='cuda'))
+        weight = torch.exp(torch.tensor(-alpha * abs(shift), dtype=torch.float32, device='cpu'))
+
         weight_tensor = weight.unsqueeze(0).expand(B, S, N_ARGS)  # (batchsize, 60, 16)
         target_dist.scatter_(3, shifted_target.unsqueeze(-1), weight_tensor.unsqueeze(-1))
 

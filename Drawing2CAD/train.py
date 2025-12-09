@@ -3,7 +3,7 @@ from tqdm import tqdm
 from dataset.bi_sequence_dataset import get_dataloader
 from config.config import Config
 from config.file_utils import cycle
-from trainer.trainer import TrainerED
+from trainer.trainer_no_cuda import TrainerED
 
 def main():
     # create experiment cfg containing all hyperparameters

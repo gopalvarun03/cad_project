@@ -74,12 +74,15 @@ class Config(object):
         parser = argparse.ArgumentParser()
 
         parser.add_argument('--proj_dir', type=str, default="proj_log", help="path to project folder where models and logs will be saved")
-        parser.add_argument('--data_root', type=str, default=r"C:\Users\LEGION\Desktop\cad_project\DeepCAD\data2", help="path to source data folder")
+        # parser.add_argument('--data_root', type=str, default=r"C:\Users\LEGION\Desktop\cad_project\DeepCAD\data2", help="path to source data folder")
+        parser.add_argument('--data_root', type=str, default=r"C:\Users\thiri\OneDrive\Desktop\2DtoCAD\Drawing2CAD\dataset\CAD-VGDrawing-20250916T140226Z-1-001\CAD-VGDrawing", help="path to source data folder")
         parser.add_argument('--exp_name', type=str, default=os.path.basename(os.getcwd()), help="name of this experiment")
         parser.add_argument('-g', '--gpu_ids', type=str, default='0', help="gpu to use, e.g. 0  0,1,2. CPU not supported.")        
         
-        parser.add_argument('--batch_size', type=int, default=32, help="batch size")
-        parser.add_argument('--num_workers', type=int, default=8, help="number of workers for data loading")
+        # parser.add_argument('--batch_size', type=int, default=32, help="batch size")
+        parser.add_argument('--batch_size', type=int, default=2, help="batch size")
+        # parser.add_argument('--num_workers', type=int, default=8, help="number of workers for data loading")
+        parser.add_argument('--num_workers', type=int, default=0, help="number of workers for data loading")
 
         parser.add_argument('--nr_epochs', type=int, default=3, help="total number of epochs to train")
         parser.add_argument('--lr', type=float, default=1e-3, help="initial learning rate")
