@@ -32,13 +32,41 @@ class TrainerED(BaseTrainer):
         svg_view = svg_data['view'].cuda() 
         svg_command = svg_data['command'].cuda() 
         svg_args = svg_data['args'].cuda()
-        outputs = self.net(svg_view, svg_command, svg_args)
+        
+        # Teacher forcing: pass ground truth CAD tokens during training
+        if self.cfg.use_teacher_forcing and self.net.training:
+            cad_command = cad_data['command'].cuda()
+            cad_args = cad_data['args'].cuda()
+            outputs = self.net(svg_view, svg_command, svg_args, cad_command, cad_args)
+        else:
+            # No teacher forcing (original parallel generation)
+            outputs = self.net(svg_view, svg_command, svg_args)
 
         loss_dict = self.loss_func(outputs, cad_data)
 
         return outputs, loss_dict
     
 
+    def generate_autoregressive(self, data, temperature=1.0):
+        """Generate CAD sequence using autoregressive generation."""
+        svg_data = data['svg']
+        svg_view = svg_data['view'].cuda()
+        svg_command = svg_data['command'].cuda()
+        svg_args = svg_data['args'].cuda()
+        
+        with torch.no_grad():
+            out_command, out_args = self.net.generate_autoregressive(
+                svg_view, svg_command, svg_args, 
+                max_len=self.cfg.cad_max_total_len,
+                temperature=temperature
+            )
+        
+        # Apply masking
+        mask = ~torch.tensor(CAD_CMD_ARGS_MASK).bool().cuda()[out_command.long()]
+        out_args[mask] = -1
+        
+        return out_command, out_args
+    
     def logits2vec(self, outputs, refill_pad=True, to_numpy=True):
         """network outputs (logits) to final CAD vector"""
         out_command = torch.argmax(torch.softmax(outputs['command_logits'], dim=-1), dim=-1)  # (N, S)

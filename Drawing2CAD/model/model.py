@@ -1,6 +1,7 @@
 from .layers.transformer import *
 from .layers.improved_transformer import *
 from .layers.positional_encoding import *
+from .layers.attention import MultiheadAttention
 from .model_utils import _make_seq_first, _make_batch_first, \
     _get_padding_mask_svg, _get_key_padding_mask_svg
 
@@ -133,10 +134,41 @@ class CommandDecoder(nn.Module):
         self.decoder = TransformerDecoder(decoder_layer, cfg.n_layers_decode, decoder_norm)
 
         self.fcn = CommandFCN(cfg.d_model, cfg.cad_n_commands)
+        
+        # Sliding window attention for history
+        self.window_size = cfg.history_window_size
+        self.history_attention = MultiheadAttention(cfg.d_model, cfg.n_heads, dropout=cfg.dropout)
+        self.history_norm = LayerNorm(cfg.d_model)
 
-    def forward(self, z):
+    def forward(self, z, prev_commands=None, prev_args=None):
         src = self.embedding(z)
         out = self.decoder(src, z, tgt_mask=None, tgt_key_padding_mask=None)
+        
+        # Apply sliding window attention to history
+        if prev_commands is not None and prev_args is not None:
+            S, N, D = out.shape
+            out_with_history = []
+            
+            for i in range(S):
+                # Get sliding window of history
+                window_start = max(0, i - self.window_size)
+                
+                if i > 0:
+                    # Concatenate command and args history in the window
+                    window_cmd = prev_commands[window_start:i].transpose(0, 1)  # (N, window_len, D)
+                    window_args = prev_args[window_start:i].transpose(0, 1)  # (N, window_len, D)
+                    window_history = torch.cat([window_cmd, window_args], dim=1)  # (N, 2*window_len, D)
+                    window_history = window_history.transpose(0, 1)  # (2*window_len, N, D)
+                    
+                    # Cross-attention to history
+                    out_i = out[i:i+1]  # (1, N, D)
+                    context, _ = self.history_attention(out_i, window_history, window_history)
+                    out_i = self.history_norm(out_i + context)
+                    out_with_history.append(out_i)
+                else:
+                    out_with_history.append(out[i:i+1])
+            
+            out = torch.cat(out_with_history, dim=0)
 
         command_logits = self.fcn(out)
 
@@ -155,13 +187,48 @@ class ArgsDecoder(nn.Module):
 
         args_dim = cfg.args_dim + 1
         self.fcn = ArgsFCN(cfg.d_model, cfg.cad_n_args, args_dim)
+        
+        # Sliding window attention for history
+        self.window_size = cfg.history_window_size
+        self.history_attention = MultiheadAttention(cfg.d_model, cfg.n_heads, dropout=cfg.dropout)
+        self.history_norm = LayerNorm(cfg.d_model)
 
-    def forward(self, z, guidance):
+    def forward(self, z, guidance, prev_commands=None, prev_args=None):
         src = self.embedding(z)
         out = self.decoder(src, z, tgt_mask=None, tgt_key_padding_mask=None)
 
         # guidance
         out = out + guidance
+        
+        # Apply sliding window attention to history
+        if prev_commands is not None and prev_args is not None:
+            S, N, D = out.shape
+            out_with_history = []
+            
+            for i in range(S):
+                # Get sliding window of history (including current command)
+                window_start = max(0, i - self.window_size)
+                
+                if i >= 0:
+                    # Include previous args and current + previous commands
+                    if i > 0:
+                        window_cmd = prev_commands[window_start:i+1].transpose(0, 1)  # (N, window_len, D)
+                        window_args_hist = prev_args[window_start:i].transpose(0, 1)  # (N, window_len-1, D)
+                        window_history = torch.cat([window_cmd, window_args_hist], dim=1)  # (N, 2*window_len-1, D)
+                    else:
+                        window_history = prev_commands[i:i+1].transpose(0, 1)  # (N, 1, D)
+                    
+                    window_history = window_history.transpose(0, 1)  # (history_len, N, D)
+                    
+                    # Cross-attention to history
+                    out_i = out[i:i+1]  # (1, N, D)
+                    context, _ = self.history_attention(out_i, window_history, window_history)
+                    out_i = self.history_norm(out_i + context)
+                    out_with_history.append(out_i)
+                else:
+                    out_with_history.append(out[i:i+1])
+            
+            out = torch.cat(out_with_history, dim=0)
 
         args_logits = self.fcn(out)
 
@@ -183,25 +250,59 @@ class SVG2CADTransformer(nn.Module):
         super(SVG2CADTransformer, self).__init__()
 
         self.args_dim = cfg.args_dim + 1
+        self.cfg = cfg
+        self.d_model = cfg.d_model
+        self.cad_n_commands = cfg.cad_n_commands
+        self.cad_n_args = cfg.cad_n_args
 
         self.encoder = Encoder(cfg)
-
         self.bottleneck = Bottleneck(cfg)
-
         self.command_decoder = CommandDecoder(cfg)
         self.args_decoder = ArgsDecoder(cfg)
+        
+        # Embeddings for CAD tokens (for teacher forcing and autoregressive generation)
+        self.command_embed = nn.Embedding(cfg.cad_n_commands, cfg.d_model)
+        self.args_embed_layer = nn.Embedding(self.args_dim, 64, padding_idx=0)
+        self.args_mlp = nn.Linear(64 * cfg.cad_n_args, cfg.d_model)
 
-    def forward(self, views_enc, commands_enc, args_enc):
-        views_enc_, commands_enc_, args_enc_ = _make_seq_first(views_enc, commands_enc, args_enc)  # Possibly None, None, None
+    def embed_commands(self, commands):
+        """Embed command tokens. Input: (..., ) Output: (..., d_model)"""
+        return self.command_embed(commands.long())
+    
+    def embed_args(self, args):
+        """Embed argument tokens. Input: (..., n_args) Output: (..., d_model)"""
+        shape = args.shape[:-1]  # All dims except last
+        args_embedded = self.args_embed_layer((args + 1).long())  # (..., n_args, 64)
+        args_flat = args_embedded.reshape(*shape, -1)  # (..., n_args * 64)
+        return self.args_mlp(args_flat)  # (..., d_model)
+
+    def forward(self, views_enc, commands_enc, args_enc, cad_commands=None, cad_args=None):
+        """Forward pass with optional teacher forcing.
+        
+        Args:
+            views_enc, commands_enc, args_enc: SVG input data
+            cad_commands: Ground truth CAD commands for teacher forcing (N, S)
+            cad_args: Ground truth CAD args for teacher forcing (N, S, n_args)
+        """
+        views_enc_, commands_enc_, args_enc_ = _make_seq_first(views_enc, commands_enc, args_enc)
 
         z = self.encoder(views_enc_, commands_enc_, args_enc_)
         z = self.bottleneck(z)
         
-        """command-guided generation"""
-        # We need to call a single decoder here and maintain the input output format 
-        command_logits, guidance = self.command_decoder(z)
+        # Teacher forcing: use ground truth history
+        if cad_commands is not None and cad_args is not None:
+            # Embed ground truth tokens: (N, S) -> (S, N, D)
+            gt_cmd_embeds = self.embed_commands(cad_commands).transpose(0, 1)  # (S, N, D)
+            gt_args_embeds = self.embed_args(cad_args).transpose(0, 1)  # (S, N, D)
+            
+            command_logits, guidance = self.command_decoder(z, gt_cmd_embeds, gt_args_embeds)
+            args_logits = self.args_decoder(z, guidance, gt_cmd_embeds, gt_args_embeds)
+        else:
+            # No teacher forcing (original parallel generation)
+            command_logits, guidance = self.command_decoder(z)
+            args_logits = self.args_decoder(z, guidance)
+        
         command_logits = _make_batch_first(command_logits)
-        args_logits = self.args_decoder(z, guidance)
         args_logits = _make_batch_first(args_logits)
 
         res = {
@@ -210,3 +311,84 @@ class SVG2CADTransformer(nn.Module):
         }
 
         return res
+    
+    def generate_autoregressive(self, views_enc, commands_enc, args_enc, max_len=60, temperature=1.0):
+        """Autoregressive generation for inference.
+        
+        Args:
+            views_enc, commands_enc, args_enc: SVG input data
+            max_len: Maximum sequence length to generate
+            temperature: Sampling temperature
+        
+        Returns:
+            generated_commands: (N, S) tensor of command indices
+            generated_args: (N, S, n_args) tensor of argument indices
+        """
+        from config.macro import CAD_EOS_IDX
+        
+        views_enc_, commands_enc_, args_enc_ = _make_seq_first(views_enc, commands_enc, args_enc)
+        N = views_enc_.size(1)
+        
+        z = self.encoder(views_enc_, commands_enc_, args_enc_)
+        z = self.bottleneck(z)
+        
+        # Initialize storage for generated tokens
+        generated_cmd_embeds = []  # List of (1, N, D) tensors
+        generated_args_embeds = []  # List of (1, N, D) tensors
+        generated_commands = []  # List of (N,) tensors
+        generated_args = []  # List of (N, n_args) tensors
+        
+        for i in range(max_len):
+            # Prepare history embeddings
+            if len(generated_cmd_embeds) > 0:
+                prev_cmd_embeds = torch.cat(generated_cmd_embeds, dim=0)  # (i, N, D)
+                prev_args_embeds = torch.cat(generated_args_embeds, dim=0)  # (i, N, D)
+            else:
+                prev_cmd_embeds = None
+                prev_args_embeds = None
+            
+            # Generate command at position i
+            cmd_logits, guidance = self.command_decoder(z, prev_cmd_embeds, prev_args_embeds)
+            cmd_logits_i = cmd_logits[i] / temperature  # (N, n_commands)
+            cmd_probs = torch.softmax(cmd_logits_i, dim=-1)
+            cmd_i = torch.argmax(cmd_probs, dim=-1)  # (N,)
+            
+            # Embed the generated command
+            cmd_i_embed = self.embed_commands(cmd_i).unsqueeze(0)  # (1, N, D)
+            generated_cmd_embeds.append(cmd_i_embed)
+            generated_commands.append(cmd_i)
+            
+            # Update history for args generation
+            prev_cmd_embeds = torch.cat(generated_cmd_embeds, dim=0)  # (i+1, N, D)
+            if len(generated_args_embeds) > 0:
+                prev_args_embeds = torch.cat(generated_args_embeds, dim=0)  # (i, N, D)
+            else:
+                prev_args_embeds = None
+            
+            # Generate args at position i
+            args_logits = self.args_decoder(z, guidance, prev_cmd_embeds, prev_args_embeds)
+            args_logits_i = args_logits[i] / temperature  # (N, n_args, args_dim)
+            args_i = torch.argmax(args_logits_i, dim=-1) - 1  # (N, n_args)
+            
+            # Embed the generated args
+            args_i_embed = self.embed_args(args_i).unsqueeze(0)  # (1, N, D)
+            generated_args_embeds.append(args_i_embed)
+            generated_args.append(args_i)
+            
+            # Early stopping if all sequences generated EOS
+            if (cmd_i == CAD_EOS_IDX).all():
+                break
+        
+        # Stack results
+        generated_commands = torch.stack(generated_commands, dim=1)  # (N, S)
+        generated_args = torch.stack(generated_args, dim=1)  # (N, S, n_args)
+        
+        # Pad to max_len if stopped early
+        if generated_commands.size(1) < max_len:
+            pad_len = max_len - generated_commands.size(1)
+            cmd_pad = torch.full((N, pad_len), CAD_EOS_IDX, device=generated_commands.device, dtype=generated_commands.dtype)
+            args_pad = torch.full((N, pad_len, self.cad_n_args), -1, device=generated_args.device, dtype=generated_args.dtype)
+            generated_commands = torch.cat([generated_commands, cmd_pad], dim=1)
+            generated_args = torch.cat([generated_args, args_pad], dim=1)
+        
+        return generated_commands, generated_args

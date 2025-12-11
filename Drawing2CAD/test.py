@@ -31,8 +31,14 @@ def main():
         batch_size = cad_data['command'].shape[0]
 
         with torch.no_grad():
-            outputs, _ = tr_agent.forward(data)
-            batch_outputs = tr_agent.logits2vec(outputs)
+            if cfg.autoregressive:
+                # Use autoregressive generation
+                out_command, out_args = tr_agent.generate_autoregressive(data)
+                batch_outputs = torch.cat([out_command.unsqueeze(-1), out_args], dim=-1).detach().cpu().numpy()
+            else:
+                # Use parallel generation (original)
+                outputs, _ = tr_agent.forward(data)
+                batch_outputs = tr_agent.logits2vec(outputs)
 
         pbar = tqdm(total=batch_size, desc='BATCH[{}]'.format(i))
         for j in range(batch_size):

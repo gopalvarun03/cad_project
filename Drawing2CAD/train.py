@@ -28,12 +28,27 @@ def main():
     for e in range(clock.epoch, cfg.nr_epochs):
         # begin iteration
         pbar = tqdm(train_loader)
+        
+        # Initialize running loss accumulators
+        running_losses = {}
+        running_count = 0
+        
         for b, data in enumerate(pbar):
             # train step
             outputs, losses = tr_agent.train_func(data)
 
+            # Update running averages
+            for k, v in losses.items():
+                if k not in running_losses:
+                    running_losses[k] = 0.0
+                running_losses[k] += v.item()
+            running_count += 1
+            
+            # Calculate running averages
+            avg_losses = {k: v / running_count for k, v in running_losses.items()}
+            
             pbar.set_description("EPOCH[{}][{}]".format(e, b))
-            pbar.set_postfix(OrderedDict({k: v.item() for k, v in losses.items()}))
+            pbar.set_postfix(OrderedDict({f"{k}_avg": f"{v:.4f}" for k, v in avg_losses.items()}))
 
             # validation step
             if clock.step % cfg.val_frequency == 0:

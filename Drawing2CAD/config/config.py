@@ -62,6 +62,11 @@ class Config(object):
 
         self.cad_max_total_len = CAD_MAX_TOTAL_LEN
         self.svg_max_total_len = SVG_MAX_TOTAL_LEN
+        
+        # Sliding window attention for autoregressive generation
+        self.history_window_size = 5     # Number of previous cmd-arg pairs to attend to
+        self.use_teacher_forcing = True  # Use teacher forcing during training
+        self.teacher_forcing_ratio = 1.0 # Ratio of teacher forcing (1.0 = always use GT)
 
         self.loss_weights = {
             "loss_cmd_weight": 1.0,
@@ -94,6 +99,7 @@ class Config(object):
         parser.add_argument('--vis_frequency', type=int, default=2000, help="visualize output every x iterations")
 
         parser.add_argument('--input_option', type=str, default="4x", help="number of input views (1x, 3x, 4x)")
+        parser.add_argument('--autoregressive', action='store_true', default=True, help="use autoregressive generation at test time")
         
         args = parser.parse_args()
         return parser, args
