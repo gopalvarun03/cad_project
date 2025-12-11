@@ -20,7 +20,7 @@ class BiSequenceDataset(Dataset):
         self.svg_vec = os.path.join(config.data_root, "svg_vec") # svg_vec data root
         self.cad_vec = os.path.join(config.data_root, "cad_vec") # cad_vec data root
         self.path = os.path.join(config.data_root, "train_val_test_split.json")
-
+    
         with open(self.path, "r") as fp:
             self.all_data = json.load(fp)[phase]
 

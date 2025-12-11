@@ -7,6 +7,7 @@ from trainer.trainer import TrainerED
 
 def main():
     # create experiment cfg containing all hyperparameters
+    # import pdb; pdb.set_trace()
     cfg = Config('train')
 
     # create network and training agent

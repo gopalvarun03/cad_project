@@ -56,12 +56,12 @@ class Config(object):
         self.dropout = 0.1               # Dropout rate used in basic layers and Transformers
         self.dim_z = 256                 # Latent vector dimensionality
 
-        self.cad_max_n_ext = CAD_MAX_N_EXT
-        self.cad_max_n_loops = CAD_MAX_N_LOOPS
-        self.cad_max_n_curves = CAD_MAX_N_CURVES
+        self.cad_max_n_ext = CAD_MAX_N_EXT # 10
+        self.cad_max_n_loops = CAD_MAX_N_LOOPS # 6
+        self.cad_max_n_curves = CAD_MAX_N_CURVES # 15
 
-        self.cad_max_total_len = CAD_MAX_TOTAL_LEN
-        self.svg_max_total_len = SVG_MAX_TOTAL_LEN
+        self.cad_max_total_len = CAD_MAX_TOTAL_LEN # 60
+        self.svg_max_total_len = SVG_MAX_TOTAL_LEN # 100
 
         self.loss_weights = {
             "loss_cmd_weight": 1.0,

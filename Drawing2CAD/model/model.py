@@ -66,7 +66,7 @@ class Encoder(nn.Module):
         super().__init__()
 
         view_num = int(cfg.input_option[0])
-        seq_len = view_num * cfg.svg_max_total_len
+        seq_len = view_num * cfg.svg_max_total_len # 4x100
         self.embedding = SVGEmbedding(cfg, seq_len)
 
         encoder_layer = TransformerEncoderLayerImproved(cfg.d_model, cfg.n_heads, cfg.dim_feedforward, cfg.dropout)
@@ -199,6 +199,7 @@ class SVG2CADTransformer(nn.Module):
         
         """command-guided generation"""
         # We need to call a single decoder here and maintain the input output format 
+        import pdb; pdb.set_trace()
         command_logits, guidance = self.command_decoder(z)
         command_logits = _make_batch_first(command_logits)
         args_logits = self.args_decoder(z, guidance)
