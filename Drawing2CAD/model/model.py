@@ -198,6 +198,7 @@ class SVG2CADTransformer(nn.Module):
         z = self.bottleneck(z)
         
         """command-guided generation"""
+        # We need to call a single decoder here and maintain the input output format 
         command_logits, guidance = self.command_decoder(z)
         command_logits = _make_batch_first(command_logits)
         args_logits = self.args_decoder(z, guidance)
