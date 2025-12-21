@@ -1,0 +1,9 @@
+<?xml version="1.0" ?>
+<svg xmlns="http://www.w3.org/2000/svg" xmlns:ev="http://www.w3.org/2001/xml-events" xmlns:xlink="http://www.w3.org/1999/xlink" baseProfile="full" height="200" width="200" version="1.1" viewBox="0 0 200 200">
+	<defs/>
+<g fill="none" stroke="#000000" stroke-opacity="1" stroke-width="0.7" stroke-linecap="butt" stroke-linejoin="miter" stroke-miterlimit="4">
+<path d="M-0.0513158, 0.375 C-0.0537953, 0.375 0.0537953, 0.375 0.0513158, 0.375 " /><path id= "2" d=" M 0.0513158 0.375 L 0.0513158 -0.375 " />
+<path d="M-0.0513158, -0.375 C-0.0537953, -0.375 0.0537953, -0.375 0.0513158, -0.375 " /><path id= "1" d=" M -0.0513158 -0.375 L -0.0513158 0.375 " />
+</g>
+
+</svg>
