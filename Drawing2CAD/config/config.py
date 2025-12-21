@@ -99,7 +99,7 @@ class Config(object):
         parser.add_argument('--vis_frequency', type=int, default=2000, help="visualize output every x iterations")
 
         parser.add_argument('--input_option', type=str, default="4x", help="number of input views (1x, 3x, 4x)")
-        parser.add_argument('--autoregressive', action='store_true', default=True, help="use autoregressive generation at test time")
+        parser.add_argument('--autoregressive', action='store_true', default=False, help="use autoregressive generation at test time")
         
         args = parser.parse_args()
         return parser, args
