@@ -81,7 +81,11 @@ class TrainerED(BaseTrainer):
         return out_cad_vec
 
     def evaluate(self, test_loader):
-        """evaluatinon during training"""
+        """Evaluation during training.
+        
+        Note: Uses parallel generation (no history) for speed during training.
+        For proper evaluation with autoregressive generation, use test.py with --autoregressive flag.
+        """
         self.net.eval()
         pbar = tqdm(test_loader)
         pbar.set_description("EVALUATE[{}]".format(self.clock.epoch))
@@ -100,6 +104,7 @@ class TrainerED(BaseTrainer):
                 svg_args = svg_data['args'].cuda()
                 cad_command = cad_data['command']
                 cad_args = cad_data['args']
+                # Use parallel generation for speed (no history dependencies)
                 outputs = self.net(svg_view, svg_command, svg_args)
 
             out_args = torch.argmax(torch.softmax(outputs['args_logits'], dim=-1), dim=-1) - 1

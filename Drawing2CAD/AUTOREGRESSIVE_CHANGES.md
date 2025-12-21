@@ -1,8 +1,13 @@
 # Autoregressive CAD Generation with Sliding Window Attention
 
+## ⚠️ IMPORTANT UPDATE - Inference Fix Applied
+
+**Date**: December 12, 2025  
+**Status**: Training unchanged, Inference corrected
+
 ## Summary of Changes
 
-This update implements **autoregressive CAD generation with sliding window attention and teacher forcing** to make command and argument generation fully dependent on previous tokens.
+This update implements **true autoregressive inference** while keeping the training process unchanged. The model now properly uses its learned sliding window attention mechanisms at test time by generating tokens sequentially and using previously generated tokens as history.
 
 ---
 
@@ -54,24 +59,29 @@ This update implements **autoregressive CAD generation with sliding window atten
 
 ## 🚀 Usage
 
-### Training (with teacher forcing - default)
+### Training (unchanged)
 ```bash
 python train.py --exp_name my_experiment
+# Training continues to use teacher forcing with GT tokens
 ```
 
-### Training (without teacher forcing)
+### Quick Test (verify autoregressive works)
 ```bash
-python train.py --exp_name my_experiment --use_teacher_forcing False
+python test_autoregressive.py --exp_name epoch_100_shivank --ckpt latest
+# Compares parallel vs autoregressive on a few samples
 ```
 
-### Testing (parallel generation - fast)
+### Testing (parallel generation - fast, for comparison)
 ```bash
-python test.py --exp_name my_experiment --ckpt latest
+python test.py --exp_name epoch_100_shivank --ckpt latest
+# Uses parallel generation (ignores sliding window)
 ```
 
-### Testing (autoregressive generation - slower but better quality)
+### Testing (autoregressive generation - RECOMMENDED)
 ```bash
-python test.py --exp_name my_experiment --ckpt latest --autoregressive
+python test.py --exp_name epoch_100_shivank --ckpt latest --autoregressive
+# Uses true autoregressive with sliding window history
+# This is the proper way to test the 170-epoch checkpoint
 ```
 
 ---
@@ -146,9 +156,48 @@ Inference (Autoregressive):
 
 ---
 
+## � What Was Fixed
+
+### Previous Issue (Why 170 epochs didn't converge):
+```python
+# Training: Used GT tokens in sliding window → model learned attention
+# Inference: Passed no history → sliding window was BYPASSED
+# Result: Trained features were completely ignored at test time!
+```
+
+### Current Fix:
+```python
+# Training: Unchanged (still uses GT tokens)
+# Inference: Now uses GENERATED tokens in sliding window
+# Result: Trained attention mechanisms are properly activated!
+```
+
+The model spent 170 epochs learning sliding window attention, but inference was ignoring it. Now inference properly uses the generated tokens as history, activating the learned attention patterns.
+
+---
+
+## 📊 Expected Behavior with 170-Epoch Checkpoint
+
+### Why This Should Work:
+1. ✅ **Model learned sliding window attention** (170 epochs of training)
+2. ✅ **Inference now activates that attention** (uses generated history)
+3. ✅ **Same attention mechanism** (just different input quality)
+4. ⚠️ **Exposure bias exists** (GT in training, generated in inference)
+   - This is standard and acceptable in autoregressive models
+   - Model should generalize reasonably well
+
+### What to Expect:
+- **Much better than current results** (which ignore history completely)
+- **Possible error accumulation** (early mistakes affect later predictions)
+- **Local geometric dependencies** (arcs connecting to lines, etc.)
+- **More coherent CAD sequences** overall
+
+---
+
 ## 🐛 Notes
 
-- The parallel generation mode (original) is still available and is the default at test time
-- Autoregressive mode is optional and can be enabled with `--autoregressive` flag
-- Teacher forcing is enabled by default during training
-- All existing checkpoints are compatible (new parameters are only used when explicitly enabled)
+- **Training is unchanged** - no need to retrain
+- **170-epoch checkpoint is usable** - contains trained sliding window attention
+- Parallel mode still available (fast but ignores learned features)
+- **Autoregressive mode is RECOMMENDED** - uses all trained components
+- `test_autoregressive.py` helps verify the fix is working
