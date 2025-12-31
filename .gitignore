@@ -3,3 +3,16 @@ DeepCAD/data2/
 Drawing2CAD/proj_log/
 DeepCAD/pretrained/
 DeepCAD/proj_log/
+DeepCAD/cadlib/__pycache__/
+DeepCAD/utils/__pycache__/
+Drawing2CAD/config/__pycache__/
+Drawing2CAD/dataset/__pycache__/
+Drawing2CAD/model/__pycache__/
+Drawing2CAD/model/layers/__pycache__/
+Drawing2CAD/trainer/__pycache__/
+svg_output/
+svg_output_improved/
+svg_output_paths/
+svg_vs_pred_comparison.html
+svg_vs_pred_comparison2.html
+test_sv/

@@ -8,8 +8,11 @@ from OCC.Core.Quantity import Quantity_Color, Quantity_TOC_RGB
 
 # ================= PATHS =================
 INPUT_DIR = r"C:\Users\LEGION\Desktop\cad_project\Drawing2CAD\proj_log\epoch_100_shivank\evaluation_results\test"
+# INPUT_DIR=r'C:\Users\LEGION\Desktop\cad_project\Drawing2CAD\proj_log\epoch_100_shivank\test_results'
 OUTPUT_DIR = r"C:\Users\LEGION\Desktop\cad_project\Drawing2CAD\proj_log\epoch_100_shivank\new_pngs"
+# OUTPUT_DIR = r"C:\Users\LEGION\Desktop\cad_project\Drawing2CAD\proj_log\epoch_100_shivank\new_pngs_new_views"
 SVG_ROOT = r"C:\Users\LEGION\Desktop\cad_project\DeepCAD\data2\svg_raw"
+# SVG_ROOT = r"C:\Users\LEGION\Desktop\cad_project\DeepCAD\data2\svg_vec_vaish"
 CAD_VEC_ROOT = r"C:\Users\LEGION\Desktop\cad_project\DeepCAD\data2\cad_vec"
 H5_DIR = INPUT_DIR  # Same as INPUT_DIR for predicted h5 files
 
@@ -223,45 +226,107 @@ def process_all_steps():
     """Process all STEP files and generate data"""
     items = []
     for f in sorted(os.listdir(INPUT_DIR)):
-        if not f.lower().endswith((".step", ".stp")):
-            continue
-        step_path = os.path.join(INPUT_DIR, f)
-        png_name = os.path.splitext(f)[0] + ".png"
-        png_path = os.path.join(OUTPUT_DIR, png_name)
-
-        # Generate PNG if not exists
-        if not os.path.exists(png_path):
-            ok = step_to_iso_png(step_path, png_path)
-            if not ok:
-                print("⚠️ skipped:", f)
+        try:
+            if not f.lower().endswith((".step", ".stp")):
+                print(f"[SKIP] Not a STEP file: {f}")
                 continue
-        
-        svg = find_original_svg(f)
-        
-        # Compute metrics
-        base_id = f.replace("_vec.step", "").replace(".step", "").split(".")[0]
-        gen_h5_path = os.path.join(H5_DIR, base_id + ".h5")
-        truth_h5_path = find_ground_truth_h5(f)
-        
-        acc_cmd, acc_param = None, None
-        gen_h5_content, truth_h5_content = None, None
-        
-        if truth_h5_path and os.path.exists(gen_h5_path):
-            acc_cmd, acc_param = compute_metrics_for_file(gen_h5_path, truth_h5_path)
-            gen_h5_content = read_h5_content(gen_h5_path, GENERATED_DATASET_NAME)
-            truth_h5_content = read_h5_content(truth_h5_path, TRUTH_DATASET_NAME)
+            step_path = os.path.join(INPUT_DIR, f)
+            png_name = os.path.splitext(f)[0] + ".png"
+            png_path = os.path.join(OUTPUT_DIR, png_name)
 
-        items.append({
-            "step": f, 
-            "png": png_name, 
-            "svg": svg,
-            "acc_cmd": acc_cmd,
-            "acc_param": acc_param,
-            "gen_h5": gen_h5_content,
-            "truth_h5": truth_h5_content
-        })
-        print(f"✅ processed: {png_name}", f"| ACCcmd: {acc_cmd:.2f}%" if acc_cmd else "", f"ACCparam: {acc_param:.2f}%" if acc_param else "")
-    
+            # Generate PNG if not exists
+            if not os.path.exists(png_path):
+                ok = step_to_iso_png(step_path, png_path)
+                if not ok:
+                    print(f"[SKIP] PNG not generated for: {f}")
+                    continue
+            elif not os.path.isfile(png_path):
+                print(f"[WARN] PNG file missing after supposed generation: {png_path}")
+
+            svg = find_original_svg(f)
+            if not svg:
+                print(f"[INFO] SVG not found for: {f}")
+
+            items = []
+            for f in sorted(os.listdir(INPUT_DIR)):
+                try:
+                    if not f.lower().endswith((".step", ".stp")):
+                        print(f"[SKIP] Not a STEP file: {f}")
+                        continue
+                    step_path = os.path.join(INPUT_DIR, f)
+                    png_name = os.path.splitext(f)[0] + ".png"
+                    png_path = os.path.join(OUTPUT_DIR, png_name)
+
+                    # Generate PNG if not exists
+                    if not os.path.exists(png_path):
+                        ok = step_to_iso_png(step_path, png_path)
+                        if not ok:
+                            print(f"[SKIP] PNG not generated for: {f}")
+                            continue
+                    elif not os.path.isfile(png_path):
+                        print(f"[WARN] PNG file missing after supposed generation: {png_path}")
+
+                    svg = find_original_svg(f)
+                    if not svg:
+                        print(f"[INFO] SVG not found for: {f}")
+
+                    # Compute metrics
+                    base_id = f.replace("_vec.step", "").replace(".step", "").split(".")[0]
+                    gen_h5_path = os.path.join(H5_DIR, base_id + ".h5")
+                    truth_h5_path = find_ground_truth_h5(f)
+
+                    acc_cmd, acc_param = None, None
+                    gen_h5_content, truth_h5_content = None, None
+
+                    if not os.path.exists(gen_h5_path):
+                        print(f"[INFO] Generated h5 missing: {gen_h5_path}")
+                    if not truth_h5_path or not os.path.exists(truth_h5_path):
+                        print(f"[INFO] Ground truth h5 missing: {truth_h5_path}")
+
+                    if truth_h5_path and os.path.exists(gen_h5_path) and os.path.exists(truth_h5_path):
+                        try:
+                            acc_cmd, acc_param = compute_metrics_for_file(gen_h5_path, truth_h5_path)
+                            if acc_cmd is None or acc_param is None:
+                                print(f"[WARN] Metrics not computed for: {f}")
+                        except Exception as e:
+                            print(f"[ERROR] Exception in metric computation for {f}: {e}")
+                        try:
+                            gen_h5_content = read_h5_content(gen_h5_path, GENERATED_DATASET_NAME)
+                            if not gen_h5_content or gen_h5_content.startswith("Error"):
+                                print(f"[WARN] Error reading generated h5 content: {gen_h5_path} | {gen_h5_content}")
+                        except Exception as e:
+                            print(f"[ERROR] Exception reading generated h5 content for {gen_h5_path}: {e}")
+                        try:
+                            truth_h5_content = read_h5_content(truth_h5_path, TRUTH_DATASET_NAME)
+                            if not truth_h5_content or truth_h5_content.startswith("Error"):
+                                print(f"[WARN] Error reading ground truth h5 content: {truth_h5_path} | {truth_h5_content}")
+                        except Exception as e:
+                            print(f"[ERROR] Exception reading ground truth h5 content for {truth_h5_path}: {e}")
+
+                    items.append({
+                        "step": f,
+                        "png": png_name,
+                        "svg": svg,
+                        "acc_cmd": acc_cmd,
+                        "acc_param": acc_param,
+                        "gen_h5": gen_h5_content,
+                        "truth_h5": truth_h5_content
+                    })
+                    print(f"✅ processed: {png_name}",
+                          f"| ACCcmd: {acc_cmd:.2f}%" if acc_cmd is not None else "| ACCcmd: N/A",
+                          f"ACCparam: {acc_param:.2f}%" if acc_param is not None else "ACCparam: N/A")
+                except Exception as e:
+                    print(f"[ERROR] Exception processing file {f}: {e}")
+
+            print(f"[SUMMARY] Total processed: {len(items)}")
+            return items
+            print(f"✅ processed: {png_name}",
+                  f"| ACCcmd: {acc_cmd:.2f}%" if acc_cmd is not None else "| ACCcmd: N/A",
+                  f"ACCparam: {acc_param:.2f}%" if acc_param is not None else "ACCparam: N/A")
+        except Exception as e:
+            print(f"[ERROR] Exception processing file {f}: {e}")
+
+    print(f"[SUMMARY] Total processed: {len(items)}")
     return items
 
 # ============== FLASK ROUTES ==============
@@ -479,7 +544,7 @@ if __name__ == '__main__':
     print(f"📂 SVG ROOT: {SVG_ROOT}")
     print(f"📂 CAD VEC ROOT: {CAD_VEC_ROOT}")
     print("=" * 60)
-    print("🌐 Server will start at: http://127.0.0.1:5000")
+    print("🌐 Server will start at: http://127.0.0.1:3000")
     print("=" * 60)
     
-    app.run(debug=True, host='0.0.0.0', port=5000)
+    app.run(debug=True, host='0.0.0.0', port=3000)
