@@ -2,9 +2,10 @@ import os
 from flask import Flask, render_template_string, send_from_directory
 
 # ========== PATHS ==========
-SVG_ROOT = r"C:\Users\LEGION\Desktop\cad_project\DeepCAD\data2\svg_raw"
-OLD_GEN_DIR = r"C:\Users\LEGION\Desktop\cad_project\Drawing2CAD\proj_log\epoch_100_shivank\test_pngs_original"
-NEW_GEN_DIR = r"C:\Users\LEGION\Desktop\cad_project\Drawing2CAD\proj_log\epoch_100_shivank\test_pngs_rotated"
+SVG_ROOT = r"C:\Users\LEGION\Desktop\cad_project\DeepCAD\data2\new_svg_raw"
+OLD_GEN_DIR = r"C:\Users\LEGION\Desktop\cad_project\Drawing2CAD\proj_log\epochs_200\evaluation_results_no_rot\test"
+NEW_GEN_DIR = r"C:\Users\LEGION\Desktop\cad_project\Drawing2CAD\proj_log\epochs_200\evaluation_results_rotated1\test"
+NEW2_GEN_DIR = r"C:\Users\LEGION\Desktop\cad_project\Drawing2CAD\proj_log\epochs_200\evaluation_results_rotated2\test"
 
 app = Flask(__name__)
 
@@ -46,10 +47,20 @@ def get_base_ids():
             else:
                 new_ids[base] = f
 
-    # Find common IDs that exist in all three locations
+    new2_ids = {}  # maps base_id -> actual filename
+    for f in os.listdir(NEW2_GEN_DIR):
+        if f.lower().endswith('.png'):
+            base = os.path.splitext(f)[0]
+            if base.endswith('_vec'):
+                actual_base = base.replace('_vec', '')
+                new2_ids[actual_base] = f
+            else:
+                new2_ids[base] = f
+
+    # Find common IDs that exist in all four locations
     common = []
     for base_id in svg_ids:
-        if base_id in old_ids and base_id in new_ids:
+        if base_id in old_ids and base_id in new_ids and base_id in new2_ids:
             common.append(base_id)
     return sorted(common)
 
@@ -101,13 +112,18 @@ def index():
         new_png_filename = get_png_filename(base_id, NEW_GEN_DIR)
         new_png_final = os.path.join(NEW_GEN_DIR, new_png_filename) if new_png_filename else None
         
+        new2_png_filename = get_png_filename(base_id, NEW2_GEN_DIR)
+        new2_png_final = os.path.join(NEW2_GEN_DIR, new2_png_filename) if new2_png_filename else None
+        
         items.append({
             'base_id': base_id,
             'svg': svg_path,
             'old_png': old_png_final,
             'old_png_filename' : old_png_filename,
             'new_png': new_png_final,
-            'new_png_filename': new_png_filename
+            'new_png_filename': new_png_filename,
+            'new2_png': new2_png_final,
+            'new2_png_filename': new2_png_filename
         })
     html = """
     <!DOCTYPE html>
@@ -135,6 +151,7 @@ def index():
         <th>Original Isometric SVG</th>
         <th>Old Generated PNG</th>
         <th>New Generated PNG</th>
+        <th>New2 Generated PNG</th>
       </tr>
       {% for item in items %}
       <tr>
@@ -142,6 +159,7 @@ def index():
         <td>{% if item.svg %}<img src="/svg/{{ item.base_id }}">{% else %}<span>Not found</span>{% endif %}</td>
         <td>{% if item.old_png %}<img src="/old_png/{{ item.old_png_filename }}">{% else %}<span>Not found</span>{% endif %}</td>
         <td>{% if item.new_png %}<img src="/new_png/{{ item.new_png_filename }}">{% else %}<span>Not found</span>{% endif %}</td>
+        <td>{% if item.new2_png %}<img src="/new2_png/{{ item.new2_png_filename }}">{% else %}<span>Not found</span>{% endif %}</td>
       </tr>
       {% endfor %}
     </table>
@@ -168,6 +186,10 @@ def serve_old_png(filename):
 @app.route('/new_png/<filename>')
 def serve_new_png(filename):
     return send_from_directory(NEW_GEN_DIR, filename)
+
+@app.route('/new2_png/<filename>')
+def serve_new2_png(filename):
+    return send_from_directory(NEW2_GEN_DIR, filename)
 
 if __name__ == '__main__':
     print("Server running at http://127.0.0.1:5050")

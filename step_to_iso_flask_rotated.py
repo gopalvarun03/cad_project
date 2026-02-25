@@ -7,14 +7,18 @@ from OCC.Display.SimpleGui import init_display
 from OCC.Core.Quantity import Quantity_Color, Quantity_TOC_RGB
 
 # ================= PATHS =================
-INPUT_DIR = r"C:\Users\LEGION\Desktop\cad_project\Drawing2CAD\proj_log\epochs_200\evaluation_results_no_rot\test"
-# INPUT_DIR=r'C:\Users\LEGION\Desktop\cad_project\Drawing2CAD\proj_log\epoch_100_shivank\test_results'
-OUTPUT_DIR = r"C:\Users\LEGION\Desktop\cad_project\Drawing2CAD\proj_log\epochs_200\evaluation_results_no_rot\test"
-# OUTPUT_DIR = r"C:\Users\LEGION\Desktop\cad_project\Drawing2CAD\proj_log\epoch_100_shivank\new_pngs_new_views"
-SVG_ROOT = r"C:\Users\LEGION\Desktop\cad_project\DeepCAD\data2\new_svg_raw"
-# SVG_ROOT = r"C:\Users\LEGION\Desktop\cad_project\DeepCAD\data2\svg_vec_vaish"
+# Three variants of predictions
+INPUT_DIR_ORIGINAL = r"C:\Users\LEGION\Desktop\cad_project\Drawing2CAD\proj_log\epoch_100_shivank\test_results_original"
+INPUT_DIR_ROTATED = r"C:\Users\LEGION\Desktop\cad_project\Drawing2CAD\proj_log\epoch_100_shivank\test_results_rotated"
+INPUT_DIR_ROTATED2 = r"C:\Users\LEGION\Desktop\cad_project\Drawing2CAD\proj_log\epoch_100_shivank\test_results_rotated2"
+
+# Corresponding output directories for PNGs
+OUTPUT_DIR_ORIGINAL = r"C:\Users\LEGION\Desktop\cad_project\Drawing2CAD\proj_log\epoch_100_shivank\test_pngs_original"
+OUTPUT_DIR_ROTATED = r"C:\Users\LEGION\Desktop\cad_project\Drawing2CAD\proj_log\epoch_100_shivank\test_pngs_rotated"
+OUTPUT_DIR_ROTATED2 = r"C:\Users\LEGION\Desktop\cad_project\Drawing2CAD\proj_log\epoch_100_shivank\test_pngs_rotated2"
+
+SVG_ROOT = r"C:\Users\LEGION\Desktop\cad_project\DeepCAD\data2\svg_raw"
 CAD_VEC_ROOT = r"C:\Users\LEGION\Desktop\cad_project\DeepCAD\data2\cad_vec"
-H5_DIR = INPUT_DIR  # Same as INPUT_DIR for predicted h5 files
 
 # ================= METRIC CONSTANTS =================
 CAD_EOS_IDX = 2
@@ -23,7 +27,9 @@ TRUTH_DATASET_NAME = "vec"
 TOL = 3          # parameter tolerance
 PAD_PARAM = -1   # padded argument marker
 
-os.makedirs(OUTPUT_DIR, exist_ok=True)
+os.makedirs(OUTPUT_DIR_ORIGINAL, exist_ok=True)
+os.makedirs(OUTPUT_DIR_ROTATED, exist_ok=True)
+os.makedirs(OUTPUT_DIR_ROTATED2, exist_ok=True)
 
 # ================= FLASK APP =================
 app = Flask(__name__)
@@ -222,111 +228,91 @@ def find_original_svg(step_name):
     return svg_path if os.path.exists(svg_path) else None
 
 # ============== PROCESS ALL STEPS ==============
-def process_all_steps():
-    """Process all STEP files and generate data"""
-    items = []
-    for f in sorted(os.listdir(INPUT_DIR)):
+def process_variant(input_dir, output_dir, variant_name):
+    """Process files from one variant directory"""
+    variant_data = {}
+    for f in sorted(os.listdir(input_dir)):
         try:
-            if not f.lower().endswith((".step", ".stp")):
-                print(f"[SKIP] Not a STEP file: {f}")
+            if not f.lower().endswith((".step", ".stp", ".h5")):
                 continue
-            step_path = os.path.join(INPUT_DIR, f)
-            png_name = os.path.splitext(f)[0] + ".png"
-            png_path = os.path.join(OUTPUT_DIR, png_name)
-
-            # Generate PNG if not exists
-            if not os.path.exists(png_path):
-                ok = step_to_iso_png(step_path, png_path)
-                if not ok:
-                    print(f"[SKIP] PNG not generated for: {f}")
-                    continue
-            elif not os.path.isfile(png_path):
-                print(f"[WARN] PNG file missing after supposed generation: {png_path}")
-
-            svg = find_original_svg(f)
-            if not svg:
-                print(f"[INFO] SVG not found for: {f}")
-
-            items = []
-            for f in sorted(os.listdir(INPUT_DIR)):
+            
+            base_id = f.replace("_vec.step", "").replace(".step", "").replace(".h5", "").split(".")[0]
+            png_name = base_id + "_vec.png"
+            png_path = os.path.join(output_dir, png_name)
+            
+            # Generate PNG if STEP file and PNG doesn't exist
+            if f.lower().endswith((".step", ".stp")):
+                step_path = os.path.join(input_dir, f)
+                if not os.path.exists(png_path):
+                    ok = step_to_iso_png(step_path, png_path)
+                    if not ok:
+                        print(f"[{variant_name}] PNG not generated for: {f}")
+            
+            # Compute metrics
+            gen_h5_path = os.path.join(input_dir, base_id + ".h5")
+            truth_h5_path = find_ground_truth_h5(base_id)
+            
+            acc_cmd, acc_param = None, None
+            gen_h5_content, truth_h5_content = None, None
+            
+            if truth_h5_path and os.path.exists(gen_h5_path) and os.path.exists(truth_h5_path):
                 try:
-                    if not f.lower().endswith((".step", ".stp")):
-                        print(f"[SKIP] Not a STEP file: {f}")
-                        continue
-                    step_path = os.path.join(INPUT_DIR, f)
-                    png_name = os.path.splitext(f)[0] + ".png"
-                    png_path = os.path.join(OUTPUT_DIR, png_name)
-
-                    # Generate PNG if not exists
-                    if not os.path.exists(png_path):
-                        ok = step_to_iso_png(step_path, png_path)
-                        if not ok:
-                            print(f"[SKIP] PNG not generated for: {f}")
-                            continue
-                    elif not os.path.isfile(png_path):
-                        print(f"[WARN] PNG file missing after supposed generation: {png_path}")
-
-                    svg = find_original_svg(f)
-                    if not svg:
-                        print(f"[INFO] SVG not found for: {f}")
-
-                    # Compute metrics
-                    base_id = f.replace("_vec.step", "").replace(".step", "").split(".")[0]
-                    gen_h5_path = os.path.join(H5_DIR, base_id + ".h5")
-                    truth_h5_path = find_ground_truth_h5(f)
-
-                    acc_cmd, acc_param = None, None
-                    gen_h5_content, truth_h5_content = None, None
-
-                    if not os.path.exists(gen_h5_path):
-                        print(f"[INFO] Generated h5 missing: {gen_h5_path}")
-                    if not truth_h5_path or not os.path.exists(truth_h5_path):
-                        print(f"[INFO] Ground truth h5 missing: {truth_h5_path}")
-
-                    if truth_h5_path and os.path.exists(gen_h5_path) and os.path.exists(truth_h5_path):
-                        try:
-                            acc_cmd, acc_param = compute_metrics_for_file(gen_h5_path, truth_h5_path)
-                            if acc_cmd is None or acc_param is None:
-                                print(f"[WARN] Metrics not computed for: {f}")
-                        except Exception as e:
-                            print(f"[ERROR] Exception in metric computation for {f}: {e}")
-                        try:
-                            gen_h5_content = read_h5_content(gen_h5_path, GENERATED_DATASET_NAME)
-                            if not gen_h5_content or gen_h5_content.startswith("Error"):
-                                print(f"[WARN] Error reading generated h5 content: {gen_h5_path} | {gen_h5_content}")
-                        except Exception as e:
-                            print(f"[ERROR] Exception reading generated h5 content for {gen_h5_path}: {e}")
-                        try:
-                            truth_h5_content = read_h5_content(truth_h5_path, TRUTH_DATASET_NAME)
-                            if not truth_h5_content or truth_h5_content.startswith("Error"):
-                                print(f"[WARN] Error reading ground truth h5 content: {truth_h5_path} | {truth_h5_content}")
-                        except Exception as e:
-                            print(f"[ERROR] Exception reading ground truth h5 content for {truth_h5_path}: {e}")
-
-                    items.append({
-                        "step": f,
-                        "png": png_name,
-                        "svg": svg,
-                        "acc_cmd": acc_cmd,
-                        "acc_param": acc_param,
-                        "gen_h5": gen_h5_content,
-                        "truth_h5": truth_h5_content
-                    })
-                    print(f"✅ processed: {png_name}",
-                          f"| ACCcmd: {acc_cmd:.2f}%" if acc_cmd is not None else "| ACCcmd: N/A",
-                          f"ACCparam: {acc_param:.2f}%" if acc_param is not None else "ACCparam: N/A")
+                    acc_cmd, acc_param = compute_metrics_for_file(gen_h5_path, truth_h5_path)
                 except Exception as e:
-                    print(f"[ERROR] Exception processing file {f}: {e}")
-
-            print(f"[SUMMARY] Total processed: {len(items)}")
-            return items
-            print(f"✅ processed: {png_name}",
-                  f"| ACCcmd: {acc_cmd:.2f}%" if acc_cmd is not None else "| ACCcmd: N/A",
-                  f"ACCparam: {acc_param:.2f}%" if acc_param is not None else "ACCparam: N/A")
+                    print(f"[{variant_name}] Metric error for {base_id}: {e}")
+                try:
+                    gen_h5_content = read_h5_content(gen_h5_path, GENERATED_DATASET_NAME)
+                except Exception as e:
+                    print(f"[{variant_name}] H5 read error for {base_id}: {e}")
+                try:
+                    truth_h5_content = read_h5_content(truth_h5_path, TRUTH_DATASET_NAME)
+                except Exception:
+                    pass
+            
+            variant_data[base_id] = {
+                "png": png_name,
+                "acc_cmd": acc_cmd,
+                "acc_param": acc_param,
+                "gen_h5": gen_h5_content,
+                "truth_h5": truth_h5_content
+            }
+            
         except Exception as e:
-            print(f"[ERROR] Exception processing file {f}: {e}")
+            print(f"[{variant_name}] Error processing {f}: {e}")
+    
+    return variant_data
 
-    print(f"[SUMMARY] Total processed: {len(items)}")
+def process_all_steps():
+    """Process all STEP files from all 3 variants and generate comparison data"""
+    print("[INFO] Processing variant: ORIGINAL")
+    original_data = process_variant(INPUT_DIR_ORIGINAL, OUTPUT_DIR_ORIGINAL, "ORIGINAL")
+    
+    print("[INFO] Processing variant: ROTATED")
+    rotated_data = process_variant(INPUT_DIR_ROTATED, OUTPUT_DIR_ROTATED, "ROTATED")
+    
+    print("[INFO] Processing variant: ROTATED2")
+    rotated2_data = process_variant(INPUT_DIR_ROTATED2, OUTPUT_DIR_ROTATED2, "ROTATED2")
+    
+    # Find common base_ids across all variants
+    all_ids = set(original_data.keys()) | set(rotated_data.keys()) | set(rotated2_data.keys())
+    
+    items = []
+    for base_id in sorted(all_ids):
+        svg = find_original_svg(base_id)
+        
+        items.append({
+            "base_id": base_id,
+            "svg": svg,
+            "original": original_data.get(base_id, {}),
+            "rotated": rotated_data.get(base_id, {}),
+            "rotated2": rotated2_data.get(base_id, {})
+        })
+        
+        print(f"✅ {base_id} | Original: {original_data.get(base_id, {}).get('acc_cmd', 'N/A')} | "
+              f"Rotated: {rotated_data.get(base_id, {}).get('acc_cmd', 'N/A')} | "
+              f"Rotated2: {rotated2_data.get(base_id, {}).get('acc_cmd', 'N/A')}")
+    
+    print(f"[SUMMARY] Total samples: {len(items)}")
     return items
 
 # ============== FLASK ROUTES ==============
@@ -339,7 +325,7 @@ def index():
 <html>
 <head>
 <meta charset="utf-8">
-<title>STEP Isometric Comparison - Live View</title>
+<title>Multi-Variant STEP Comparison</title>
 <style>
 body {
     font-family: Arial, sans-serif;
@@ -348,7 +334,7 @@ body {
     padding: 20px 0;
 }
 .container {
-    max-width: 1200px;
+    max-width: 1600px;
     margin: auto;
 }
 h1 {
@@ -361,161 +347,169 @@ h1 {
     margin-bottom: 20px;
     font-size: 14px;
 }
+.sample-section {
+    margin-bottom: 30px;
+    background: white;
+    padding: 15px;
+    border-radius: 8px;
+    box-shadow: 0 2px 8px rgba(0,0,0,0.1);
+}
+.sample-header {
+    font-weight: bold;
+    font-size: 16px;
+    margin-bottom: 15px;
+    padding-bottom: 8px;
+    border-bottom: 2px solid #0066cc;
+}
 .grid {
     display: grid;
     grid-template-columns: repeat(4, 1fr);
-    gap: 14px;
-    align-items: start;
-}
-.stepname {
-    grid-column: span 2;
-    font-weight: bold;
-    padding: 6px 0;
+    gap: 12px;
 }
 .card {
-    background: white;
+    background: #fafafa;
     border-radius: 6px;
-    padding: 8px;
-    box-shadow: 0 2px 5px rgba(0,0,0,0.12);
+    padding: 10px;
+    box-shadow: 0 1px 3px rgba(0,0,0,0.1);
     text-align: center;
-    min-height: 260px;
-    max-height: 500px;
     display: flex;
     flex-direction: column;
-    justify-content: flex-start;
     align-items: center;
-    overflow: hidden;
 }
 .card .label {
-    font-size: 12px;
-    color: #666;
-    margin-bottom: 6px;
+    font-size: 13px;
+    font-weight: bold;
+    color: #333;
+    margin-bottom: 8px;
+    padding: 4px 8px;
+    border-radius: 4px;
 }
+.card .label.original { background: #e3f2fd; }
+.card .label.rotated { background: #fff3e0; }
+.card .label.rotated2 { background: #f3e5f5; }
+.card .label.gt { background: #e8f5e9; }
 .metrics {
-    font-size: 11px;
+    font-size: 10px;
     color: #0066cc;
-    margin: 6px 0;
+    margin: 4px 0;
     font-weight: 600;
 }
 .card img {
     width: 100%;
     height: auto;
+    max-height: 300px;
     object-fit: contain;
     border-radius: 4px;
     background: #fff;
+    border: 1px solid #ddd;
 }
 .placeholder {
     color: #999;
     font-size: 13px;
-    margin-top: 40px;
+    padding: 60px 0;
 }
 .small {
-    font-size: 12px;
-    color: #444;
+    font-size: 10px;
+    color: #666;
     margin-top: 6px;
-    word-break: break-all;
 }
 .h5-info {
-    font-size: 9px;
+    font-size: 8px;
     color: #333;
     margin-top: 8px;
     padding: 6px;
-    background: #f8f8f8;
+    background: #fff;
     border-radius: 3px;
     font-family: 'Courier New', monospace;
     text-align: left;
-    max-height: 150px;
+    max-height: 120px;
     overflow-y: auto;
     white-space: pre-wrap;
     word-break: break-all;
+    width: 100%;
+    border: 1px solid #e0e0e0;
 }
 </style>
 </head>
 <body>
 <div class="container">
-<h1>🔴 LIVE: STEP Isometric Comparison</h1>
-<div class="info">Flask Server Running | Total Files: {{ total_count }}</div>
-<div class="grid">
-{% set n = items|length %}
-{% for i in range(0, n, 2) %}
-    {% set a = items[i] %}
-    {% set b = items[i+1] if (i+1) < n else None %}
-    
-    {# Header row #}
-    <div class="stepname">{{ a.step }}
-    {% if a.acc_cmd is not none %}
-        <span style="color:#0066cc;">[ACCcmd: {{ "%.2f"|format(a.acc_cmd) }}% | ACCparam: {{ "%.2f"|format(a.acc_param) }}%]</span>
-    {% endif %}
+<h1>🔴 LIVE: Multi-Variant STEP Comparison (3 Predictions + GT)</h1>
+<div class="info">Flask Server Running | Total Samples: {{ total_count }}</div>
+
+{% for item in items %}
+<div class="sample-section">
+    <div class="sample-header">
+        Sample ID: {{ item.base_id }}
     </div>
-    
-    {% if b %}
-    <div class="stepname">{{ b.step }}
-    {% if b.acc_cmd is not none %}
-        <span style="color:#0066cc;">[ACCcmd: {{ "%.2f"|format(b.acc_cmd) }}% | ACCparam: {{ "%.2f"|format(b.acc_param) }}%]</span>
-    {% endif %}
+    <div class="grid">
+        {# Variant 1: Original #}
+        <div class="card">
+            <div class="label original">Original View</div>
+            {% if item.original.png %}
+                <img src="/png_original/{{ item.original.png }}" alt="original variant">
+                <div class="small">{{ item.original.png }}</div>
+                {% if item.original.acc_cmd is not none %}
+                <div class="metrics">ACCcmd: {{ "%.2f"|format(item.original.acc_cmd) }}% | ACCparam: {{ "%.2f"|format(item.original.acc_param) }}%</div>
+                {% endif %}
+                {% if item.original.gen_h5 %}
+                <div class="h5-info">{{ item.original.gen_h5 }}</div>
+                {% endif %}
+            {% else %}
+                <div class="placeholder">Not available</div>
+            {% endif %}
+        </div>
+        
+        {# Variant 2: Rotated #}
+        <div class="card">
+            <div class="label rotated">Rotated View</div>
+            {% if item.rotated.png %}
+                <img src="/png_rotated/{{ item.rotated.png }}" alt="rotated variant">
+                <div class="small">{{ item.rotated.png }}</div>
+                {% if item.rotated.acc_cmd is not none %}
+                <div class="metrics">ACCcmd: {{ "%.2f"|format(item.rotated.acc_cmd) }}% | ACCparam: {{ "%.2f"|format(item.rotated.acc_param) }}%</div>
+                {% endif %}
+                {% if item.rotated.gen_h5 %}
+                <div class="h5-info">{{ item.rotated.gen_h5 }}</div>
+                {% endif %}
+            {% else %}
+                <div class="placeholder">Not available</div>
+            {% endif %}
+        </div>
+        
+        {# Variant 3: Rotated2 #}
+        <div class="card">
+            <div class="label rotated2">Rotated2 View</div>
+            {% if item.rotated2.png %}
+                <img src="/png_rotated2/{{ item.rotated2.png }}" alt="rotated2 variant">
+                <div class="small">{{ item.rotated2.png }}</div>
+                {% if item.rotated2.acc_cmd is not none %}
+                <div class="metrics">ACCcmd: {{ "%.2f"|format(item.rotated2.acc_cmd) }}% | ACCparam: {{ "%.2f"|format(item.rotated2.acc_param) }}%</div>
+                {% endif %}
+                {% if item.rotated2.gen_h5 %}
+                <div class="h5-info">{{ item.rotated2.gen_h5 }}</div>
+                {% endif %}
+            {% else %}
+                <div class="placeholder">Not available</div>
+            {% endif %}
+        </div>
+        
+        {# Ground Truth #}
+        <div class="card">
+            <div class="label gt">Ground Truth</div>
+            {% if item.svg %}
+                <img src="/svg/{{ item.svg }}" alt="ground truth">
+                <div class="small">GT SVG</div>
+                {% if item.original.truth_h5 or item.rotated.truth_h5 or item.rotated2.truth_h5 %}
+                <div class="h5-info">{{ item.original.truth_h5 or item.rotated.truth_h5 or item.rotated2.truth_h5 }}</div>
+                {% endif %}
+            {% else %}
+                <div class="placeholder">Not available</div>
+            {% endif %}
+        </div>
     </div>
-    {% else %}
-    <div class="stepname"></div>
-    {% endif %}
-    
-    {# Generated A #}
-    <div class="card">
-        <div class="label">Generated</div>
-        <img src="/png/{{ a.png }}" alt="generated">
-        <div class="small">{{ a.png }}</div>
-        {% if a.gen_h5 %}
-        <div class="h5-info">{{ a.gen_h5 }}</div>
-        {% endif %}
-    </div>
-    
-    {# Original A #}
-    <div class="card">
-        <div class="label">Original</div>
-        {% if a.svg %}
-            <img src="/svg/{{ a.svg }}" alt="original">
-            <div class="small">Original SVG</div>
-        {% else %}
-            <div class="placeholder">Not available</div>
-        {% endif %}
-        {% if a.truth_h5 %}
-        <div class="h5-info">{{ a.truth_h5 }}</div>
-        {% endif %}
-    </div>
-    
-    {# Generated B #}
-    {% if b %}
-    <div class="card">
-        <div class="label">Generated</div>
-        <img src="/png/{{ b.png }}" alt="generated">
-        <div class="small">{{ b.png }}</div>
-        {% if b.gen_h5 %}
-        <div class="h5-info">{{ b.gen_h5 }}</div>
-        {% endif %}
-    </div>
-    {% else %}
-    <div class="card"><div class="placeholder">--</div></div>
-    {% endif %}
-    
-    {# Original B #}
-    {% if b %}
-    <div class="card">
-        <div class="label">Original</div>
-        {% if b.svg %}
-            <img src="/svg/{{ b.svg }}" alt="original">
-            <div class="small">Original SVG</div>
-        {% else %}
-            <div class="placeholder">Not available</div>
-        {% endif %}
-        {% if b.truth_h5 %}
-        <div class="h5-info">{{ b.truth_h5 }}</div>
-        {% endif %}
-    </div>
-    {% else %}
-    <div class="card"><div class="placeholder">--</div></div>
-    {% endif %}
-    
-{% endfor %}
 </div>
+{% endfor %}
+
 </div>
 </body>
 </html>
@@ -523,10 +517,20 @@ h1 {
     
     return render_template_string(html_template, items=items, total_count=len(items))
 
-@app.route('/png/<filename>')
-def serve_png(filename):
-    """Serve PNG files from OUTPUT_DIR"""
-    return send_from_directory(OUTPUT_DIR, filename)
+@app.route('/png_original/<filename>')
+def serve_png_original(filename):
+    """Serve PNG files from original variant"""
+    return send_from_directory(OUTPUT_DIR_ORIGINAL, filename)
+
+@app.route('/png_rotated/<filename>')
+def serve_png_rotated(filename):
+    """Serve PNG files from rotated variant"""
+    return send_from_directory(OUTPUT_DIR_ROTATED, filename)
+
+@app.route('/png_rotated2/<filename>')
+def serve_png_rotated2(filename):
+    """Serve PNG files from rotated2 variant"""
+    return send_from_directory(OUTPUT_DIR_ROTATED2, filename)
 
 @app.route('/svg/<path:path>')
 def serve_svg(path):
@@ -537,10 +541,14 @@ def serve_svg(path):
 
 if __name__ == '__main__':
     print("=" * 60)
-    print("🚀 Starting Flask server...")
+    print("🚀 Starting Flask server with 3 variants...")
     print("=" * 60)
-    print(f"📂 Input DIR: {INPUT_DIR}")
-    print(f"📂 Output DIR: {OUTPUT_DIR}")
+    print(f"📂 Input DIR (Original): {INPUT_DIR_ORIGINAL}")
+    print(f"📂 Input DIR (Rotated): {INPUT_DIR_ROTATED}")
+    print(f"📂 Input DIR (Rotated2): {INPUT_DIR_ROTATED2}")
+    print(f"📂 Output DIR (Original): {OUTPUT_DIR_ORIGINAL}")
+    print(f"📂 Output DIR (Rotated): {OUTPUT_DIR_ROTATED}")
+    print(f"📂 Output DIR (Rotated2): {OUTPUT_DIR_ROTATED2}")
     print(f"📂 SVG ROOT: {SVG_ROOT}")
     print(f"📂 CAD VEC ROOT: {CAD_VEC_ROOT}")
     print("=" * 60)

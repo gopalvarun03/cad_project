@@ -16,7 +16,7 @@ from config.macro import CAD_EOS_IDX
 # ================================================================
 # USER PATHS (EDIT IF NEEDED)
 # ================================================================
-OUTPUT_ROOT = "evaluation_results"
+OUTPUT_ROOT = "evaluation_results_rotated1"
 GENERATED_DATASET_NAME = "out_vec"
 TRUTH_DATASET_NAME = "vec"
 TOL = 3          # parameter tolerance

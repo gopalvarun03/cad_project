@@ -16,3 +16,7 @@ svg_output_paths/
 svg_vs_pred_comparison.html
 svg_vs_pred_comparison2.html
 test_sv/
+DeepCAD/config/__pycache__/
+master_prisms/
+crello.ipynb
+prisms_to_crello.py

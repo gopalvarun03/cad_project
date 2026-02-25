@@ -76,7 +76,9 @@ class Config(object):
         parser.add_argument('--proj_dir', type=str, default="proj_log", help="path to project folder where models and logs will be saved")
         parser.add_argument('--data_root', type=str, default=r"C:\Users\LEGION\Desktop\cad_project\DeepCAD\data2", help="path to source data folder")
         # parser.add_argument('--exp_name', type=str, default=os.path.basename(os.getcwd()), help="name of this experiment")
-        parser.add_argument('--exp_name', type=str, default='epoch_100_shivank', help="name of this experiment")
+        # parser.add_argument('--exp_name', type=str, default='epoch_100_shivank', help="name of this experiment")
+        parser.add_argument('--exp_name', type=str, default='epochs_200', help="name of this experiment")
+        # parser.add_argument('--exp_name', type=str, default='ideal_iso_200', help="name of this experiment")
         parser.add_argument('-g', '--gpu_ids', type=str, default='0', help="gpu to use, e.g. 0  0,1,2. CPU not supported.")        
         
         parser.add_argument('--batch_size', type=int, default=32, help="batch size")

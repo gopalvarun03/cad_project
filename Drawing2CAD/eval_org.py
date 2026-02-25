@@ -17,7 +17,7 @@ from config.macro import CAD_EOS_IDX, SVG_MAX_TOTAL_LEN, CAD_MAX_TOTAL_LEN
 # ================================================================
 # USER PATHS (EDIT IF NEEDED)
 # ================================================================
-OUTPUT_ROOT = "evaluation_results"
+OUTPUT_ROOT = "evaluation_results_rotated2"
 GENERATED_DATASET_NAME = "out_vec"
 TRUTH_DATASET_NAME = "vec"
 EXPECTED_COLUMNS = 17
@@ -247,7 +247,8 @@ def main():
         split_data = json.load(f)
 
     # Process splits
-    for split in ["validation","train"]:  # Start with test, then val, then train
+    # for split in ["validation","train"]:  # Start with test, then val, then train
+    for split in ["test"]:
         if split not in split_data:
             print(f"[WARNING] Split {split} missing in JSON")
             continue

@@ -2,14 +2,11 @@ import os
 import h5py
 import numpy as np
 from flask import Flask, render_template_string, send_from_directory
-from OCC.Core.STEPControl import STEPControl_Reader
-from OCC.Display.SimpleGui import init_display
-from OCC.Core.Quantity import Quantity_Color, Quantity_TOC_RGB
 
 # ================= PATHS =================
-INPUT_DIR = r"C:\Users\LEGION\Desktop\cad_project\Drawing2CAD\proj_log\epochs_200\evaluation_results_no_rot\test"
+INPUT_DIR = r"C:\Users\LEGION\Desktop\cad_project\Drawing2CAD\proj_log\epochs_200\evaluation_results1\test"
 # INPUT_DIR=r'C:\Users\LEGION\Desktop\cad_project\Drawing2CAD\proj_log\epoch_100_shivank\test_results'
-OUTPUT_DIR = r"C:\Users\LEGION\Desktop\cad_project\Drawing2CAD\proj_log\epochs_200\evaluation_results_no_rot\test"
+OUTPUT_DIR = r"C:\Users\LEGION\Desktop\cad_project\Drawing2CAD\proj_log\epochs_200\evaluation_results1\test"
 # OUTPUT_DIR = r"C:\Users\LEGION\Desktop\cad_project\Drawing2CAD\proj_log\epoch_100_shivank\new_pngs_new_views"
 SVG_ROOT = r"C:\Users\LEGION\Desktop\cad_project\DeepCAD\data2\new_svg_raw"
 # SVG_ROOT = r"C:\Users\LEGION\Desktop\cad_project\DeepCAD\data2\svg_vec_vaish"
@@ -168,46 +165,6 @@ def read_h5_content(h5_path, dataset_name):
     except Exception as e:
         return f"Error reading file: {e}"
 
-# ============== INIT OCC VIEWER ONCE ==============
-print("Initializing OCC display...")
-display, _, _, _ = init_display()
-display.View.SetImmediateUpdate(False)
-params = display.View.RenderingParams()
-params.NbMsaaSamples = 0
-params.IsAntialiasingEnabled = False
-display.View.SetBackgroundColor(Quantity_Color(1.0, 1.0, 1.0, Quantity_TOC_RGB))
-# Windows-safe way to set viewport size
-try:
-    display.View.SetWindowSize(1024, 768)
-except Exception:
-    pass
-
-# ============== STEP -> PNG (robust) ==============
-def step_to_iso_png(step_path, out_path):
-    reader = STEPControl_Reader()
-    if reader.ReadFile(step_path) != 1:
-        print("❌ Read failed:", step_path)
-        return False
-
-    reader.TransferRoots()
-    shape = reader.OneShape()
-
-    if shape is None or shape.IsNull():
-        print("⚠️ Empty or invalid shape:", step_path)
-        return False
-
-    try:
-        display.EraseAll()
-        display.DisplayShape(shape, update=False)
-        display.View_Iso()
-        display.FitAll()
-        display.Repaint()
-        display.View.Dump(out_path)
-        return True
-    except Exception as e:
-        print("⚠️ Render failed:", step_path, " -> ", e)
-        return False
-
 # ============== find original SVG ==============
 def find_original_svg(step_name):
     # step_name looks like "00000659_vec.step"
@@ -223,103 +180,67 @@ def find_original_svg(step_name):
 
 # ============== PROCESS ALL STEPS ==============
 def process_all_steps():
-    """Process all STEP files and generate data"""
+    """Process all STEP files and generate data (assumes PNGs are pre-generated)"""
     items = []
     for f in sorted(os.listdir(INPUT_DIR)):
         try:
             if not f.lower().endswith((".step", ".stp")):
                 print(f"[SKIP] Not a STEP file: {f}")
                 continue
-            step_path = os.path.join(INPUT_DIR, f)
             png_name = os.path.splitext(f)[0] + ".png"
             png_path = os.path.join(OUTPUT_DIR, png_name)
 
-            # Generate PNG if not exists
+            # Check if PNG exists (should be pre-generated)
             if not os.path.exists(png_path):
-                ok = step_to_iso_png(step_path, png_path)
-                if not ok:
-                    print(f"[SKIP] PNG not generated for: {f}")
-                    continue
-            elif not os.path.isfile(png_path):
-                print(f"[WARN] PNG file missing after supposed generation: {png_path}")
+                print(f"[SKIP] PNG not found for: {f}")
+                continue
 
             svg = find_original_svg(f)
             if not svg:
                 print(f"[INFO] SVG not found for: {f}")
 
-            items = []
-            for f in sorted(os.listdir(INPUT_DIR)):
+            # Compute metrics
+            base_id = f.replace("_vec.step", "").replace(".step", "").split(".")[0]
+            gen_h5_path = os.path.join(H5_DIR, base_id + ".h5")
+            truth_h5_path = find_ground_truth_h5(f)
+
+            acc_cmd, acc_param = None, None
+            gen_h5_content, truth_h5_content = None, None
+
+            if not os.path.exists(gen_h5_path):
+                print(f"[INFO] Generated h5 missing: {gen_h5_path}")
+            if not truth_h5_path or not os.path.exists(truth_h5_path):
+                print(f"[INFO] Ground truth h5 missing: {truth_h5_path}")
+
+            if truth_h5_path and os.path.exists(gen_h5_path) and os.path.exists(truth_h5_path):
                 try:
-                    if not f.lower().endswith((".step", ".stp")):
-                        print(f"[SKIP] Not a STEP file: {f}")
-                        continue
-                    step_path = os.path.join(INPUT_DIR, f)
-                    png_name = os.path.splitext(f)[0] + ".png"
-                    png_path = os.path.join(OUTPUT_DIR, png_name)
-
-                    # Generate PNG if not exists
-                    if not os.path.exists(png_path):
-                        ok = step_to_iso_png(step_path, png_path)
-                        if not ok:
-                            print(f"[SKIP] PNG not generated for: {f}")
-                            continue
-                    elif not os.path.isfile(png_path):
-                        print(f"[WARN] PNG file missing after supposed generation: {png_path}")
-
-                    svg = find_original_svg(f)
-                    if not svg:
-                        print(f"[INFO] SVG not found for: {f}")
-
-                    # Compute metrics
-                    base_id = f.replace("_vec.step", "").replace(".step", "").split(".")[0]
-                    gen_h5_path = os.path.join(H5_DIR, base_id + ".h5")
-                    truth_h5_path = find_ground_truth_h5(f)
-
-                    acc_cmd, acc_param = None, None
-                    gen_h5_content, truth_h5_content = None, None
-
-                    if not os.path.exists(gen_h5_path):
-                        print(f"[INFO] Generated h5 missing: {gen_h5_path}")
-                    if not truth_h5_path or not os.path.exists(truth_h5_path):
-                        print(f"[INFO] Ground truth h5 missing: {truth_h5_path}")
-
-                    if truth_h5_path and os.path.exists(gen_h5_path) and os.path.exists(truth_h5_path):
-                        try:
-                            acc_cmd, acc_param = compute_metrics_for_file(gen_h5_path, truth_h5_path)
-                            if acc_cmd is None or acc_param is None:
-                                print(f"[WARN] Metrics not computed for: {f}")
-                        except Exception as e:
-                            print(f"[ERROR] Exception in metric computation for {f}: {e}")
-                        try:
-                            gen_h5_content = read_h5_content(gen_h5_path, GENERATED_DATASET_NAME)
-                            if not gen_h5_content or gen_h5_content.startswith("Error"):
-                                print(f"[WARN] Error reading generated h5 content: {gen_h5_path} | {gen_h5_content}")
-                        except Exception as e:
-                            print(f"[ERROR] Exception reading generated h5 content for {gen_h5_path}: {e}")
-                        try:
-                            truth_h5_content = read_h5_content(truth_h5_path, TRUTH_DATASET_NAME)
-                            if not truth_h5_content or truth_h5_content.startswith("Error"):
-                                print(f"[WARN] Error reading ground truth h5 content: {truth_h5_path} | {truth_h5_content}")
-                        except Exception as e:
-                            print(f"[ERROR] Exception reading ground truth h5 content for {truth_h5_path}: {e}")
-
-                    items.append({
-                        "step": f,
-                        "png": png_name,
-                        "svg": svg,
-                        "acc_cmd": acc_cmd,
-                        "acc_param": acc_param,
-                        "gen_h5": gen_h5_content,
-                        "truth_h5": truth_h5_content
-                    })
-                    print(f"✅ processed: {png_name}",
-                          f"| ACCcmd: {acc_cmd:.2f}%" if acc_cmd is not None else "| ACCcmd: N/A",
-                          f"ACCparam: {acc_param:.2f}%" if acc_param is not None else "ACCparam: N/A")
+                    acc_cmd, acc_param = compute_metrics_for_file(gen_h5_path, truth_h5_path)
+                    if acc_cmd is None or acc_param is None:
+                        print(f"[WARN] Metrics not computed for: {f}")
                 except Exception as e:
-                    print(f"[ERROR] Exception processing file {f}: {e}")
+                    print(f"[ERROR] Exception in metric computation for {f}: {e}")
+                try:
+                    gen_h5_content = read_h5_content(gen_h5_path, GENERATED_DATASET_NAME)
+                    if not gen_h5_content or gen_h5_content.startswith("Error"):
+                        print(f"[WARN] Error reading generated h5 content: {gen_h5_path} | {gen_h5_content}")
+                except Exception as e:
+                    print(f"[ERROR] Exception reading generated h5 content for {gen_h5_path}: {e}")
+                try:
+                    truth_h5_content = read_h5_content(truth_h5_path, TRUTH_DATASET_NAME)
+                    if not truth_h5_content or truth_h5_content.startswith("Error"):
+                        print(f"[WARN] Error reading ground truth h5 content: {truth_h5_path} | {truth_h5_content}")
+                except Exception as e:
+                    print(f"[ERROR] Exception reading ground truth h5 content for {truth_h5_path}: {e}")
 
-            print(f"[SUMMARY] Total processed: {len(items)}")
-            return items
+            items.append({
+                "step": f,
+                "png": png_name,
+                "svg": svg,
+                "acc_cmd": acc_cmd,
+                "acc_param": acc_param,
+                "gen_h5": gen_h5_content,
+                "truth_h5": truth_h5_content
+            })
             print(f"✅ processed: {png_name}",
                   f"| ACCcmd: {acc_cmd:.2f}%" if acc_cmd is not None else "| ACCcmd: N/A",
                   f"ACCparam: {acc_param:.2f}%" if acc_param is not None else "ACCparam: N/A")
