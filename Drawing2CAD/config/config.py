@@ -74,10 +74,10 @@ class Config(object):
         parser = argparse.ArgumentParser()
 
         parser.add_argument('--proj_dir', type=str, default="proj_log", help="path to project folder where models and logs will be saved")
-        parser.add_argument('--data_root', type=str, default=r"C:\Users\LEGION\Desktop\cad_project\DeepCAD\data2", help="path to source data folder")
+        parser.add_argument('--data_root', type=str, default=r"/home/co22btech11014.co.iith/cadproject/miniproject/DeepCAD/data/CAD-VGDrawing", help="path to source data folder")
         # parser.add_argument('--exp_name', type=str, default=os.path.basename(os.getcwd()), help="name of this experiment")
         # parser.add_argument('--exp_name', type=str, default='epoch_100_shivank', help="name of this experiment")
-        parser.add_argument('--exp_name', type=str, default='epochs_200', help="name of this experiment")
+        parser.add_argument('--exp_name', type=str, default='paramseva_epochs_200', help="name of this experiment")
         # parser.add_argument('--exp_name', type=str, default='ideal_iso_200', help="name of this experiment")
         parser.add_argument('-g', '--gpu_ids', type=str, default='0', help="gpu to use, e.g. 0  0,1,2. CPU not supported.")        
         
@@ -91,8 +91,8 @@ class Config(object):
         parser.add_argument('--continue', dest='cont',  action='store_true', help="continue training from checkpoint")
         parser.add_argument('--ckpt', type=str, default='latest', required=False, help="desired checkpoint to restore")
         parser.add_argument('--vis', action='store_true', default=False, help="visualize output in training")
-        parser.add_argument('--save_frequency', type=int, default=2, help="save models every x epochs")
-        parser.add_argument('--val_frequency', type=int, default=5, help="run validation every x iterations")
+        parser.add_argument('--save_frequency', type=int, default=10, help="save models every x epochs")
+        parser.add_argument('--val_frequency', type=int, default=10, help="run validation every x iterations")
         parser.add_argument('--vis_frequency', type=int, default=2000, help="visualize output every x iterations")
 
         parser.add_argument('--input_option', type=str, default="4x", help="number of input views (1x, 3x, 4x)")
