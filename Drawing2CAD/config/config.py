@@ -64,8 +64,9 @@ class Config(object):
         self.svg_max_total_len = SVG_MAX_TOTAL_LEN # 100
 
         self.loss_weights = {
-            "loss_cmd_weight": 1.0,
-            "loss_args_weight": 2.0
+            "loss_cmd_weight":  1.0,
+            "loss_args_weight": 2.0,
+            "loss_geom_weight": 0.2,   # geometry ratio loss (e1/s): tune in [0.1, 0.5]
         }
 
         

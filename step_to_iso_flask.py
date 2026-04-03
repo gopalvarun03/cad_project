@@ -1,20 +1,23 @@
 import os
+import io
 import h5py
+import zipfile
+import threading
 import numpy as np
-from flask import Flask, render_template_string, send_from_directory
+from flask import Flask, render_template_string, send_from_directory, Response
 from OCC.Core.STEPControl import STEPControl_Reader
 from OCC.Display.SimpleGui import init_display
 from OCC.Core.Quantity import Quantity_Color, Quantity_TOC_RGB
 
 # ================= PATHS =================
-INPUT_DIR = r"C:\Users\LEGION\Desktop\cad_project\Drawing2CAD\proj_log\epochs_200\evaluation_results_no_rot\test"
-# INPUT_DIR=r'C:\Users\LEGION\Desktop\cad_project\Drawing2CAD\proj_log\epoch_100_shivank\test_results'
-OUTPUT_DIR = r"C:\Users\LEGION\Desktop\cad_project\Drawing2CAD\proj_log\epochs_200\evaluation_results_no_rot\test"
-# OUTPUT_DIR = r"C:\Users\LEGION\Desktop\cad_project\Drawing2CAD\proj_log\epoch_100_shivank\new_pngs_new_views"
-SVG_ROOT = r"C:\Users\LEGION\Desktop\cad_project\DeepCAD\data2\new_svg_raw"
-# SVG_ROOT = r"C:\Users\LEGION\Desktop\cad_project\DeepCAD\data2\svg_vec_vaish"
-CAD_VEC_ROOT = r"C:\Users\LEGION\Desktop\cad_project\DeepCAD\data2\cad_vec"
+INPUT_DIR = r"C:\Users\thiri\OneDrive\Desktop\2DtoCAD\Drawing2CAD\proj_log\your_exp_name\evaluation_results_rotated2\test"
+OUTPUT_DIR = r"C:\Users\thiri\OneDrive\Desktop\2DtoCAD\Drawing2CAD\proj_log\your_exp_name\evaluation_results_rotated2\test"
 H5_DIR = INPUT_DIR  # Same as INPUT_DIR for predicted h5 files
+
+# ZipFile settings
+ZIP_FILE_PATH = r"C:\Users\thiri\Downloads\mini.zip"
+ZIP_SVG_ROOT = "miniproject/DeepCAD/data/CAD-VGDrawing/svg_raw"
+ZIP_CAD_VEC_ROOT = "miniproject/DeepCAD/data/CAD-VGDrawing/cad_vec"
 
 # ================= METRIC CONSTANTS =================
 CAD_EOS_IDX = 2
@@ -28,15 +31,43 @@ os.makedirs(OUTPUT_DIR, exist_ok=True)
 # ================= FLASK APP =================
 app = Flask(__name__)
 
+# ================= GLOBALS FOR FAST ZIPFILE ACCESS =================
+zip_lock = threading.Lock()
+_global_zf = None
+_zip_namelist_set = set()
+
+def get_zf():
+    """Return the global ZipFile instance and the cached namelist set. Thread-safe."""
+    global _global_zf, _zip_namelist_set
+    with zip_lock:
+        if _global_zf is None:
+            print(f"Loading 75GB ZipFile central directory into memory once (this might take 5-10 seconds)...")
+            _global_zf = zipfile.ZipFile(ZIP_FILE_PATH, 'r')
+            print("Parsing internal index for ultra-fast lookups...")
+            _zip_namelist_set = frozenset(_global_zf.namelist())
+            print(f"ZipFile index loaded! Found {len(_zip_namelist_set)} files.")
+    return _global_zf, _zip_namelist_set
+
 # ================= METRIC FUNCTIONS =================
-def load_pair(gen_path, truth_path):
-    """Load generated and ground truth h5 files"""
+def load_pair(gen_path, truth_zip_path):
+    """Load generated h5 file from disk and ground truth h5 file from zip"""
     try:
-        with h5py.File(truth_path, "r") as f:
-            truth = f[TRUTH_DATASET_NAME][:]
+        zf, _ = get_zf()
+        # Load truth from zip entirely into memory as bytes
+        with zip_lock:
+            with zf.open(truth_zip_path) as zfile:
+                h5_bytes = zfile.read()
+                
+        # Use io.BytesIO to treat bytes as a file for h5py
+        with io.BytesIO(h5_bytes) as bio:
+            with h5py.File(bio, "r") as f:
+                truth = f[TRUTH_DATASET_NAME][:]
+                    
+        # Load generated from disk
         with h5py.File(gen_path, "r") as f:
             gen = f[GENERATED_DATASET_NAME][:]
-    except:
+    except Exception as e:
+        print(f"Error loading h5 pair: {e}")
         return None
 
     T = min(len(gen), len(truth))
@@ -75,9 +106,9 @@ def compute_ACCparam(pred_args, gt_args, pred_cmd, gt_cmd, eta=3):
 
     return 100.0 * (correct_param & mask).sum() / K
 
-def compute_metrics_for_file(gen_h5_path, truth_h5_path):
+def compute_metrics_for_file(gen_h5_path, truth_zip_path):
     """Compute ACCcmd and ACCparam for a single file pair"""
-    pair = load_pair(gen_h5_path, truth_h5_path)
+    pair = load_pair(gen_h5_path, truth_zip_path)
     if pair is None:
         return None, None
 
@@ -93,37 +124,37 @@ def compute_metrics_for_file(gen_h5_path, truth_h5_path):
     return ACCcmd, ACCparam
 
 def find_ground_truth_h5(step_name):
-    """Find ground truth h5 file for a given step name"""
-    # step_name looks like "00000659_vec.step"
+    """Find ground truth h5 file path within the zip for a given step name"""
     base_id = step_name.replace("_vec.step", "").replace(".step", "")
     try:
         n = int(base_id)
     except Exception:
         return None
+    
     bucket = f"{n // 10000:04d}"
-    h5_path = os.path.join(CAD_VEC_ROOT, bucket, f"{base_id}.h5")
-    return h5_path if os.path.exists(h5_path) else None
+    h5_zip_path = f"{ZIP_CAD_VEC_ROOT}/{bucket}/{base_id}.h5"
+    
+    zf, zf_names = get_zf()
+    if h5_zip_path in zf_names:
+        return h5_zip_path
+    return None
 
-def read_h5_content(h5_path, dataset_name):
-    """Read h5 file content and format as CAD commands"""
+def read_h5_content(path, dataset_name, in_zip=False):
+    """Read h5 file content from disk or zip and format as CAD commands"""
     try:
-        with h5py.File(h5_path, "r") as f:
-            data = f[dataset_name][:]
+        if in_zip:
+            zf, _ = get_zf()
+            with zip_lock:
+                with zf.open(path) as zfile:
+                    h5_bytes = zfile.read()
+            with io.BytesIO(h5_bytes) as bio:
+                with h5py.File(bio, "r") as f:
+                    data = f[dataset_name][:]
+        else:
+            with h5py.File(path, "r") as f:
+                data = f[dataset_name][:]
         
-        # Format as CAD commands (indices from macro.py)
-        # CAD_COMMANDS = ['Line', 'Arc', 'Circle', 'EOS', 'SOL', 'Ext']
         cmd_names = {0: 'Line', 1: 'Arc', 2: 'Circle', 3: 'EOS', 4: 'SOL', 5: 'Ext'}
-        
-        # Parameters order: [x, y, α, f, r, θ, φ, γ, px, py, pz, s, e1, e2, b, u]
-        param_labels = {
-            0: 'Line',   # uses: x, y
-            1: 'Arc',    # uses: x, y, α, f
-            2: 'Circle', # uses: x, y, r
-            3: 'EOS',    # no params
-            4: 'SOL',    # no params
-            5: 'Ext'     # uses: θ, φ, γ, px, py, pz, s, e1, e2, b, u
-        }
-        # ['Line', 'Arc', 'Circle', 'EOS', 'SOL', 'Ext']
         
         formatted = []
         for i, row in enumerate(data):
@@ -132,7 +163,6 @@ def read_h5_content(h5_path, dataset_name):
             
             cmd_name = cmd_names.get(cmd_type, f'Unknown({cmd_type})')
             
-            # Format parameters based on command type
             param_strs = []
             if cmd_type == 0:  # Line: x, y
                 if params[0] != -1: param_strs.append(f"x:{params[0]}")
@@ -176,7 +206,6 @@ params = display.View.RenderingParams()
 params.NbMsaaSamples = 0
 params.IsAntialiasingEnabled = False
 display.View.SetBackgroundColor(Quantity_Color(1.0, 1.0, 1.0, Quantity_TOC_RGB))
-# Windows-safe way to set viewport size
 try:
     display.View.SetWindowSize(1024, 768)
 except Exception:
@@ -210,7 +239,6 @@ def step_to_iso_png(step_path, out_path):
 
 # ============== find original SVG ==============
 def find_original_svg(step_name):
-    # step_name looks like "00000659_vec.step"
     base_id = step_name.replace("_vec.step", "").replace(".step", "").split(".")[0]
     try:
         n = int(base_id)
@@ -218,17 +246,25 @@ def find_original_svg(step_name):
         print("⚠️ cannot parse step name:", step_name)
         return None
     bucket = f"{n // 10000:04d}"
-    svg_path = os.path.join(SVG_ROOT, bucket, base_id, f"{base_id}_FrontTopRight.svg")
-    return svg_path if os.path.exists(svg_path) else None
+    svg_zip_path = f"{ZIP_SVG_ROOT}/{bucket}/{base_id}/{base_id}_FrontTopRight.svg"
+    
+    zf, zf_names = get_zf()
+    if svg_zip_path in zf_names:
+        return svg_zip_path
+    return None
 
 # ============== PROCESS ALL STEPS ==============
 def process_all_steps():
     """Process all STEP files and generate data"""
     items = []
-    for f in sorted(os.listdir(INPUT_DIR)):
+    
+    if not os.path.exists(ZIP_FILE_PATH):
+        print(f"❌ Zip file not found: {ZIP_FILE_PATH}")
+        return items
+        
+    for f in sorted(os.listdir(INPUT_DIR)[:1000]):
         try:
             if not f.lower().endswith((".step", ".stp")):
-                print(f"[SKIP] Not a STEP file: {f}")
                 continue
             step_path = os.path.join(INPUT_DIR, f)
             png_name = os.path.splitext(f)[0] + ".png"
@@ -243,83 +279,48 @@ def process_all_steps():
             elif not os.path.isfile(png_path):
                 print(f"[WARN] PNG file missing after supposed generation: {png_path}")
 
-            svg = find_original_svg(f)
-            if not svg:
+            svg_zip_path = find_original_svg(f)
+            if not svg_zip_path:
                 print(f"[INFO] SVG not found for: {f}")
 
-            items = []
-            for f in sorted(os.listdir(INPUT_DIR)):
+            # Compute metrics
+            base_id = f.replace("_vec.step", "").replace(".step", "").split(".")[0]
+            gen_h5_path = os.path.join(H5_DIR, base_id + ".h5")
+            truth_h5_zip_path = find_ground_truth_h5(f)
+
+            acc_cmd, acc_param = None, None
+            gen_h5_content, truth_h5_content = None, None
+
+            if not os.path.exists(gen_h5_path):
+                print(f"[INFO] Generated h5 missing: {gen_h5_path}")
+            if not truth_h5_zip_path:
+                print(f"[INFO] Ground truth h5 missing in zip for: {f}")
+
+            if truth_h5_zip_path and os.path.exists(gen_h5_path):
                 try:
-                    if not f.lower().endswith((".step", ".stp")):
-                        print(f"[SKIP] Not a STEP file: {f}")
-                        continue
-                    step_path = os.path.join(INPUT_DIR, f)
-                    png_name = os.path.splitext(f)[0] + ".png"
-                    png_path = os.path.join(OUTPUT_DIR, png_name)
-
-                    # Generate PNG if not exists
-                    if not os.path.exists(png_path):
-                        ok = step_to_iso_png(step_path, png_path)
-                        if not ok:
-                            print(f"[SKIP] PNG not generated for: {f}")
-                            continue
-                    elif not os.path.isfile(png_path):
-                        print(f"[WARN] PNG file missing after supposed generation: {png_path}")
-
-                    svg = find_original_svg(f)
-                    if not svg:
-                        print(f"[INFO] SVG not found for: {f}")
-
-                    # Compute metrics
-                    base_id = f.replace("_vec.step", "").replace(".step", "").split(".")[0]
-                    gen_h5_path = os.path.join(H5_DIR, base_id + ".h5")
-                    truth_h5_path = find_ground_truth_h5(f)
-
-                    acc_cmd, acc_param = None, None
-                    gen_h5_content, truth_h5_content = None, None
-
-                    if not os.path.exists(gen_h5_path):
-                        print(f"[INFO] Generated h5 missing: {gen_h5_path}")
-                    if not truth_h5_path or not os.path.exists(truth_h5_path):
-                        print(f"[INFO] Ground truth h5 missing: {truth_h5_path}")
-
-                    if truth_h5_path and os.path.exists(gen_h5_path) and os.path.exists(truth_h5_path):
-                        try:
-                            acc_cmd, acc_param = compute_metrics_for_file(gen_h5_path, truth_h5_path)
-                            if acc_cmd is None or acc_param is None:
-                                print(f"[WARN] Metrics not computed for: {f}")
-                        except Exception as e:
-                            print(f"[ERROR] Exception in metric computation for {f}: {e}")
-                        try:
-                            gen_h5_content = read_h5_content(gen_h5_path, GENERATED_DATASET_NAME)
-                            if not gen_h5_content or gen_h5_content.startswith("Error"):
-                                print(f"[WARN] Error reading generated h5 content: {gen_h5_path} | {gen_h5_content}")
-                        except Exception as e:
-                            print(f"[ERROR] Exception reading generated h5 content for {gen_h5_path}: {e}")
-                        try:
-                            truth_h5_content = read_h5_content(truth_h5_path, TRUTH_DATASET_NAME)
-                            if not truth_h5_content or truth_h5_content.startswith("Error"):
-                                print(f"[WARN] Error reading ground truth h5 content: {truth_h5_path} | {truth_h5_content}")
-                        except Exception as e:
-                            print(f"[ERROR] Exception reading ground truth h5 content for {truth_h5_path}: {e}")
-
-                    items.append({
-                        "step": f,
-                        "png": png_name,
-                        "svg": svg,
-                        "acc_cmd": acc_cmd,
-                        "acc_param": acc_param,
-                        "gen_h5": gen_h5_content,
-                        "truth_h5": truth_h5_content
-                    })
-                    print(f"✅ processed: {png_name}",
-                          f"| ACCcmd: {acc_cmd:.2f}%" if acc_cmd is not None else "| ACCcmd: N/A",
-                          f"ACCparam: {acc_param:.2f}%" if acc_param is not None else "ACCparam: N/A")
+                    acc_cmd, acc_param = compute_metrics_for_file(gen_h5_path, truth_h5_zip_path)
+                    if acc_cmd is None or acc_param is None:
+                        print(f"[WARN] Metrics not computed for: {f}")
                 except Exception as e:
-                    print(f"[ERROR] Exception processing file {f}: {e}")
+                    print(f"[ERROR] Exception in metric computation for {f}: {e}")
+                try:
+                    gen_h5_content = read_h5_content(gen_h5_path, GENERATED_DATASET_NAME, in_zip=False)
+                except Exception as e:
+                    print(f"[ERROR] Exception reading generated h5 content for {gen_h5_path}: {e}")
+                try:
+                    truth_h5_content = read_h5_content(truth_h5_zip_path, TRUTH_DATASET_NAME, in_zip=True)
+                except Exception as e:
+                    print(f"[ERROR] Exception reading ground truth h5 content from zip {truth_h5_zip_path}: {e}")
 
-            print(f"[SUMMARY] Total processed: {len(items)}")
-            return items
+            items.append({
+                "step": f,
+                "png": png_name,
+                "svg": svg_zip_path,
+                "acc_cmd": acc_cmd,
+                "acc_param": acc_param,
+                "gen_h5": gen_h5_content,
+                "truth_h5": truth_h5_content
+            })
             print(f"✅ processed: {png_name}",
                   f"| ACCcmd: {acc_cmd:.2f}%" if acc_cmd is not None else "| ACCcmd: N/A",
                   f"ACCparam: {acc_param:.2f}%" if acc_param is not None else "ACCparam: N/A")
@@ -391,12 +392,6 @@ h1 {
     color: #666;
     margin-bottom: 6px;
 }
-.metrics {
-    font-size: 11px;
-    color: #0066cc;
-    margin: 6px 0;
-    font-weight: 600;
-}
 .card img {
     width: 100%;
     height: auto;
@@ -441,7 +436,6 @@ h1 {
     {% set a = items[i] %}
     {% set b = items[i+1] if (i+1) < n else None %}
     
-    {# Header row #}
     <div class="stepname">{{ a.step }}
     {% if a.acc_cmd is not none %}
         <span style="color:#0066cc;">[ACCcmd: {{ "%.2f"|format(a.acc_cmd) }}% | ACCparam: {{ "%.2f"|format(a.acc_param) }}%]</span>
@@ -458,7 +452,6 @@ h1 {
     <div class="stepname"></div>
     {% endif %}
     
-    {# Generated A #}
     <div class="card">
         <div class="label">Generated</div>
         <img src="/png/{{ a.png }}" alt="generated">
@@ -468,7 +461,6 @@ h1 {
         {% endif %}
     </div>
     
-    {# Original A #}
     <div class="card">
         <div class="label">Original</div>
         {% if a.svg %}
@@ -482,7 +474,6 @@ h1 {
         {% endif %}
     </div>
     
-    {# Generated B #}
     {% if b %}
     <div class="card">
         <div class="label">Generated</div>
@@ -496,7 +487,6 @@ h1 {
     <div class="card"><div class="placeholder">--</div></div>
     {% endif %}
     
-    {# Original B #}
     {% if b %}
     <div class="card">
         <div class="label">Original</div>
@@ -528,23 +518,28 @@ def serve_png(filename):
     """Serve PNG files from OUTPUT_DIR"""
     return send_from_directory(OUTPUT_DIR, filename)
 
-@app.route('/svg/<path:path>')
-def serve_svg(path):
-    """Serve SVG files from their original locations"""
-    directory = os.path.dirname(path)
-    filename = os.path.basename(path)
-    return send_from_directory(directory, filename)
+@app.route('/svg/<path:svg_zip_path>')
+def serve_svg(svg_zip_path):
+    """Serve SVG directly from the Zip file"""
+    try:
+        zf, _ = get_zf()
+        with zip_lock:
+            svg_data = zf.read(svg_zip_path)
+        return Response(svg_data, mimetype='image/svg+xml')
+    except Exception as e:
+        return f"SVG not found in zip: {e}", 404
 
 if __name__ == '__main__':
     print("=" * 60)
-    print("🚀 Starting Flask server...")
+    print("🚀 Starting Flask server (ZipFile Cache Mode)...")
     print("=" * 60)
-    print(f"📂 Input DIR: {INPUT_DIR}")
-    print(f"📂 Output DIR: {OUTPUT_DIR}")
-    print(f"📂 SVG ROOT: {SVG_ROOT}")
-    print(f"📂 CAD VEC ROOT: {CAD_VEC_ROOT}")
+    print(f"📂 Zip File: {ZIP_FILE_PATH}")
+    print(f"📂 Zip SVG Root: {ZIP_SVG_ROOT}")
+    print(f"📂 Zip CAD Vec Root: {ZIP_CAD_VEC_ROOT}")
     print("=" * 60)
     print("🌐 Server will start at: http://127.0.0.1:3000")
     print("=" * 60)
     
+    # Preload the zip file to avoid hanging on the first request
+    get_zf()
     app.run(debug=True, host='0.0.0.0', port=3000)
