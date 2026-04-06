@@ -17,7 +17,7 @@ from config.macro import CAD_EOS_IDX, SVG_MAX_TOTAL_LEN, CAD_MAX_TOTAL_LEN
 # ================================================================
 # USER PATHS (EDIT IF NEEDED)
 # ================================================================
-OUTPUT_ROOT = "evaluation_results_rotated2"
+OUTPUT_ROOT = "ahratio_results2"
 GENERATED_DATASET_NAME = "out_vec"
 TRUTH_DATASET_NAME = "vec"
 EXPECTED_COLUMNS = 17

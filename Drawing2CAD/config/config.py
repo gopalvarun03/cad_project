@@ -78,7 +78,7 @@ class Config(object):
         parser.add_argument('--data_root', type=str, default=r"/home/co22btech11014.co.iith/cadproject/miniproject/DeepCAD/data/CAD-VGDrawing", help="path to source data folder")
         # parser.add_argument('--exp_name', type=str, default=os.path.basename(os.getcwd()), help="name of this experiment")
         # parser.add_argument('--exp_name', type=str, default='epoch_100_shivank', help="name of this experiment")
-        parser.add_argument('--exp_name', type=str, default='paramseva_epochs_200', help="name of this experiment")
+        parser.add_argument('--exp_name', type=str, default='ahratio_epochs_200', help="name of this experiment")
         # parser.add_argument('--exp_name', type=str, default='ideal_iso_200', help="name of this experiment")
         parser.add_argument('-g', '--gpu_ids', type=str, default='0', help="gpu to use, e.g. 0  0,1,2. CPU not supported.")        
         
